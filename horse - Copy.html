@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Horse Racing Game</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family: Arial, sans-serif;
+      background: linear-gradient(to bottom, #87CEEB 0%, #98D98E 100%);
+      overflow: hidden;
+    }
+    #gameCanvas {
+      display:block;
+      margin:20px auto;
+      background: linear-gradient(to bottom, #7CB342 0%, #558B2F 100%);
+      border:5px solid #8B4513;
+      box-shadow:0 10px 30px rgba(0,0,0,.3);
+    }
+    #ui {
+      position:absolute; top:20px; left:20px;
+      background: rgba(139,69,19,.9);
+      padding:15px; border-radius:10px; color:white;
+      font-size:14px; min-width:260px;
+    }
+    .horse-info {
+      margin:5px 0; padding:6px 8px;
+      background: rgba(0,0,0,.25);
+      border-radius:6px;
+      display:flex; justify-content:space-between; align-items:center;
+      gap:8px;
+    }
+    #controls {
+      position:absolute; bottom:20px; left:50%; transform:translateX(-50%);
+      background: rgba(139,69,19,.9);
+      padding:16px 20px; border-radius:10px; color:white; text-align:center;
+      display:flex; flex-wrap:wrap; gap:10px; justify-content:center; align-items:center;
+    }
+    button {
+      background:#4CAF50; color:white; border:none;
+      padding:10px 20px; font-size:16px; border-radius:6px;
+      cursor:pointer; transition:all .2s;
+    }
+    button:hover { background:#45a049; transform:scale(1.05); }
+    button:disabled { background:#666; cursor:not-allowed; transform:none; }
+    #winner {
+      position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+      background: rgba(255,215,0,.95); padding:28px; border-radius:14px;
+      font-size:24px; font-weight:bold; color:#8B4513; display:none; text-align:center;
+      box-shadow:0 0 50px rgba(255,215,0,.8);
+    }
+    .tiny { font-size:12px; opacity:.9; width:100%; text-align:center; }
+    .name-input, .color-input {
+      border:none; padding:6px 8px; border-radius:6px; outline:none;
+      font-size:13px;
+    }
+    .name-input { width:130px; }
+    .color-input { width:90px; }
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas"></canvas>
+
+  <div id="ui">
+    <h3>🏇 Horse Racing</h3>
+    <div id="horseList"></div>
+  </div>
+
+  <div id="controls">
+    <button id="startBtn">Start Race</button>
+    <button id="resetBtn" disabled>Reset Race</button>
+    <button id="shuffleBtn">Shuffle Lanes</button>
+    <span class="tiny">Watch the horses gallop to victory!</span>
+  </div>
+
+  <div id="winner"></div>
+
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = 1000;
+    canvas.height = 600;
+
+    const laneGap = 100;
+    const laneOffset = 100; // first lane Y
+    const finishLine = 900;
+
+    let raceActive = false;
+    let raceFinished = false;
+
+    const horses = [
+      { name:'Thunder',   color:'#8B0000', lane:1, x:50, y:laneOffset + 0*laneGap, speed:0, step:0 },
+      { name:'Lightning', color:'#FFD700', lane:2, x:50, y:laneOffset + 1*laneGap, speed:0, step:0 },
+      { name:'Storm',     color:'#4169E1', lane:3, x:50, y:laneOffset + 2*laneGap, speed:0, step:0 },
+      { name:'Blaze',     color:'#FF4500', lane:4, x:50, y:laneOffset + 3*laneGap, speed:0, step:0 },
+      { name:'Shadow',    color:'#2F4F4F', lane:5, x:50, y:laneOffset + 4*laneGap, speed:0, step:0 },
+    ];
+
+    // --- Track ---
+    function drawTrack() {
+      // grass
+      ctx.fillStyle = '#558B2F';
+      ctx.fillRect(0,0,canvas.width,canvas.height);
+
+      // lanes (dashed white)
+      ctx.strokeStyle = 'white';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([10,5]);
+      for (let i=0; i<=5; i++) {
+        ctx.beginPath();
+        ctx.moveTo(0, laneOffset - laneGap/2 + i*laneGap);
+        ctx.lineTo(canvas.width, laneOffset - laneGap/2 + i*laneGap);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+
+      // finish line red bar
+      ctx.fillStyle = '#FF0000';
+      ctx.fillRect(finishLine, 0, 5, canvas.height);
+
+      // checkers
+      for (let i=0; i<canvas.height; i+=20) {
+        ctx.fillStyle = (i/20)%2===0 ? 'white' : 'black';
+        ctx.fillRect(finishLine+5, i, 15, 10);
+        ctx.fillRect(finishLine+20, i+10, 15, 10);
+      }
+    }
+
+    // --- Horse drawing (parametric gait) ---
+    function drawHorse(horse) {
+      ctx.save();
+      ctx.translate(horse.x, horse.y);
+
+      const bodyLen = 80, bodyH = 30;
+      const neckLen = 28, headLen = 20;
+      const legUpper = 18, legLower = 20;
+      const groundY = 28;
+      const speed = horse.speed;
+
+      const t = horse.step;
+      const bob = Math.sin(t * 2.1) * Math.min(4, 1.2 + speed*0.25);
+      const pitch = Math.sin(t * 1.6) * 0.06;
+      ctx.rotate(pitch);
+
+      // shadow
+      ctx.save();
+      ctx.globalAlpha = 0.25;
+      ctx.fillStyle = '#000';
+      ctx.beginPath();
+      ctx.ellipse(0, groundY + 6, 40, 10, 0, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+
+      // body
+      ctx.fillStyle = horse.color;
+      ctx.beginPath();
+      ctx.ellipse(0, bob, bodyLen*0.5, bodyH*0.6, 0, 0, Math.PI*2);
+      ctx.fill();
+
+      // neck
+      const neckAngle = -0.6 + Math.sin(t*1.4 + 0.8) * 0.08;
+      const headAngle = -0.15 + Math.sin(t*1.7 + 1.2) * 0.05;
+
+      ctx.save();
+      ctx.translate(bodyLen*0.35, bob - 6);
+      ctx.rotate(neckAngle);
+      ctx.beginPath();
+      ctx.moveTo(0,0);
+      ctx.lineTo(neckLen, -10);
+      ctx.lineTo(neckLen+4, -6);
+      ctx.lineTo(0, 4);
+      ctx.closePath();
+      ctx.fill();
+
+      // head
+      ctx.save();
+      ctx.translate(neckLen, -8);
+      ctx.rotate(headAngle);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, headLen*0.55, headLen*0.38, 0, 0, Math.PI*2);
+      ctx.fill();
+
+      // ear + eye
+      ctx.beginPath();
+      ctx.moveTo(-4, -8); ctx.lineTo(-2, -14); ctx.lineTo(-6, -10); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = 'white';
+      ctx.beginPath(); ctx.arc(-6, -4, 2, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = 'black';
+      ctx.beginPath(); ctx.arc(-6, -4, 1, 0, Math.PI*2); ctx.fill();
+      ctx.restore(); // head
+      ctx.restore(); // neck
+
+      // tail
+      ctx.strokeStyle = horse.color; ctx.lineWidth = 4; ctx.lineCap = 'round';
+      ctx.beginPath();
+      const tailPhase = Math.sin(t*1.3) * (10 + speed*2);
+      ctx.moveTo(-bodyLen*0.45, bob + 2);
+      ctx.quadraticCurveTo(-bodyLen*0.6, bob + 10 + tailPhase*0.2, -bodyLen*0.4, bob + 20 + tailPhase*0.3);
+      ctx.stroke();
+
+      // mane
+      ctx.strokeStyle = horse.color; ctx.lineWidth = 3;
+      for (let i=0;i<4;i++){
+        ctx.beginPath();
+        const mx = bodyLen*0.18 + i*6;
+        const my = bob - 14 + i*2 + Math.sin(t*2 + i)*1.5;
+        ctx.moveTo(mx, my);
+        ctx.lineTo(mx - 6, my - 6 - Math.sin(t*2.3 + i)*2);
+        ctx.stroke();
+      }
+
+      // legs
+      const phaseFR = t + 0.0;             // Front-Right
+      const phaseFL = t + Math.PI*0.55;    // Front-Left
+      const phaseHR = t + Math.PI*0.25;    // Hind-Right
+      const phaseHL = t + Math.PI*0.80;    // Hind-Left
+
+      const shoulder = { x: bodyLen*0.2,  y: bob + 8 };
+      const hip      = { x: -bodyLen*0.2, y: bob + 10 };
+
+      function drawLeg(anchor, phase, isFront) {
+        const base   = isFront ? 0.2 : -0.2;
+        const swingA = isFront ? 0.9 : 1.0;
+        const kneeA  = isFront ? 1.2 : 1.0;
+
+        const upperAngle = base + Math.sin(phase) * swingA;
+        const lowerAngle = -0.6 + Math.sin(phase + Math.PI) * kneeA * 0.8;
+
+        const kneeX = anchor.x + Math.cos(upperAngle) * legUpper;
+        const kneeY = anchor.y + Math.sin(upperAngle) * legUpper;
+        let hoofX   = kneeX + Math.cos(upperAngle + lowerAngle) * legLower;
+        let hoofY   = kneeY + Math.sin(upperAngle + lowerAngle) * legLower;
+
+        const onGround = Math.sin(phase) > 0.2;
+        if (onGround) {
+          const worldGroundY = groundY + 6;
+          const dy = hoofY - worldGroundY;
+          hoofY -= dy;
+          const vx = hoofX - kneeX, vy = hoofY - kneeY;
+          const len = Math.hypot(vx, vy) || 1;
+          hoofX = kneeX + (vx/len) * legLower;
+          hoofY = kneeY + (vy/len) * legLower;
+        }
+
+        ctx.strokeStyle = horse.color; ctx.lineWidth = 3; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(anchor.x, anchor.y); ctx.lineTo(kneeX, kneeY); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(kneeX, kneeY); ctx.lineTo(hoofX, hoofY); ctx.stroke();
+
+        ctx.fillStyle = '#333';
+        ctx.fillRect(hoofX - 2, hoofY - 1, 5, 3);
+      }
+
+      // back legs first, then front (layering)
+      drawLeg(hip,      phaseHR, false);
+      drawLeg(hip,      phaseHL, false);
+      drawLeg(shoulder, phaseFR, true );
+      drawLeg(shoulder, phaseFL, true );
+
+      // number badge
+      ctx.fillStyle = 'white'; ctx.strokeStyle='black'; ctx.lineWidth=3; ctx.font='bold 18px Arial';
+      ctx.strokeText(horse.lane, -6, bob + 3);
+      ctx.fillText(horse.lane,   -6, bob + 3);
+
+      ctx.restore();
+    }
+
+    // --- UI ---
+    const horseList = document.getElementById('horseList');
+    function updateUI() {
+      const sorted = [...horses].sort((a,b) => b.x - a.x);
+      horseList.innerHTML = sorted.map(h => `
+        <div class="horse-info">
+          <span>${Math.max(0, Math.round((h.x/finishLine)*100))}%</span>
+          <input class="name-input" data-name="${h.name}" value="${h.name}" />
+          <input class="color-input" data-name="${h.name}" value="${h.color}" />
+          <span style="color:${h.color};font-size:18px">●</span>
+          <span>Lane ${h.lane}</span>
+        </div>
+      `).join('');
+
+      // Wire up inline edits
+      document.querySelectorAll('.name-input').forEach(inp=>{
+        inp.onchange = (e)=>{
+          const val = e.target.value.trim() || 'Horse';
+          const target = horses.find(x => x.name === e.target.getAttribute('data-name'));
+          if (target) { target.name = val; e.target.setAttribute('data-name', val); }
+        };
+      });
+      document.querySelectorAll('.color-input').forEach(inp=>{
+        inp.onchange = (e)=>{
+          const hex = e.target.value.trim();
+          const target = horses.find(x => x.name === e.target.getAttribute('data-name'));
+          if (target) { target.color = hex; }
+        };
+      });
+    }
+
+    // --- Race control ---
+    function startRace() {
+      if (raceActive) return;
+      raceActive = true; raceFinished = false;
+      document.getElementById('startBtn').disabled = true;
+      document.getElementById('resetBtn').disabled = true;
+      document.getElementById('winner').style.display = 'none';
+    }
+
+    function resetRace() {
+      raceActive = false; raceFinished = false;
+      horses.forEach((h,i)=>{
+        h.x = 50; h.speed = 0; h.step = 0; h.y = laneOffset + (h.lane-1)*laneGap;
+      });
+      document.getElementById('startBtn').disabled = false;
+      document.getElementById('resetBtn').disabled = true;
+      document.getElementById('winner').style.display = 'none';
+      updateUI();
+    }
+
+    function shuffleLanes() {
+      // randomize lanes visually (names/colors stay)
+      const laneIds = [1,2,3,4,5].sort(()=>Math.random()-0.5);
+      horses.forEach((h,i)=>{ h.lane = laneIds[i]; h.y = laneOffset + (h.lane-1)*laneGap; });
+      updateUI();
+    }
+
+    function showWinner(horse) {
+      const winnerDiv = document.getElementById('winner');
+      winnerDiv.innerHTML = `🏆 ${horse.name} WINS! 🏆<br/><br/><span style="font-size:18px;">Lane ${horse.lane}</span>`;
+      winnerDiv.style.display = 'block';
+      document.getElementById('resetBtn').disabled = false;
+      document.getElementById('startBtn').disabled = true;
+    }
+
+    // --- Physics / update ---
+    function updateHorses() {
+      if (!raceActive || raceFinished) return;
+      horses.forEach(horse => {
+        const jitter = (Math.random() - 0.5) * 0.6;
+        const base = 3.2;                 // forward speed (px/frame)
+        horse.speed = base + jitter;
+        horse.x += horse.speed;
+        horse.step += horse.speed * 0.08; // gait cycle
+
+        if (horse.x >= finishLine && !raceFinished) {
+          raceFinished = true; raceActive = false; showWinner(horse);
+        }
+      });
+      updateUI();
+    }
+
+    // --- Loop ---
+    function gameLoop() {
+      drawTrack();
+      horses
+        .slice()
+        .sort((a,b)=>a.y-b.y) // ensure correct lane layering
+        .forEach(h => drawHorse(h));
+      updateHorses();
+      requestAnimationFrame(gameLoop);
+    }
+
+    // --- Wire buttons ---
+    document.getElementById('startBtn').onclick = startRace;
+    document.getElementById('resetBtn').onclick = resetRace;
+    document.getElementById('shuffleBtn').onclick = shuffleLanes;
+
+    // Init
+    updateUI();
+    gameLoop();
+  </script>
+</body>
+</html>

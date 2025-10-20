@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Oval Track Horse Racing (Sprite)</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:Arial,Helvetica,sans-serif;background:linear-gradient(#87CEEB,#98D98E);overflow:hidden}
+    #gameCanvas{display:block;margin:20px auto;background:#5a9736;border:5px solid #8B4513;box-shadow:0 10px 30px rgba(0,0,0,.3)}
+    #ui{position:absolute;top:20px;left:20px;background:rgba(139,69,19,.92);color:#fff;padding:14px;border-radius:10px;min-width:320px;max-width:380px}
+    .row{display:flex;gap:8px;align-items:center;margin:6px 0}
+    .row label{min-width:64px;font-size:13px}
+    .row input[type="text"], .row input[type="number"]{flex:1;border:none;border-radius:6px;padding:6px 8px;outline:none;font-size:13px}
+    .row input[type="file"]{flex:1}
+    .tiny{font-size:12px;opacity:.9}
+    .horse-info{background:rgba(0,0,0,.25);padding:6px 8px;border-radius:6px;margin:8px 0}
+    #controls{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);background:rgba(139,69,19,.92);color:#fff;border-radius:10px;padding:14px 16px;display:flex;flex-wrap:wrap;gap:10px;justify-content:center;align-items:center}
+    button{background:#4CAF50;color:#fff;border:none;border-radius:6px;padding:10px 18px;cursor:pointer;transition:.2s;font-size:15px}
+    button:hover{background:#45a049;transform:scale(1.05)}
+    button:disabled{background:#666;transform:none;cursor:not-allowed}
+    #winner{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(255,215,0,.96);padding:28px;border-radius:14px;font-weight:700;color:#8B4513;display:none;text-align:center;font-size:22px;box-shadow:0 0 40px rgba(255,215,0,.8)}
+    #loadStatus{margin-left:10px;font-size:13px}
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas"></canvas>
+
+  <div id="ui">
+    <h3>🏇 Oval Track Horse Racing</h3>
+    <div class="tiny" style="margin-bottom:8px">
+      Uses <b>default.jpg</b> (6 frames, one row). Horses follow an oval path with turns and a home straight.
+    </div>
+
+    <div class="row">
+      <label>Frames</label>
+      <input id="framesInput" type="number" min="2" max="32" />
+    </div>
+    <div class="row">
+      <label>Scale</label>
+      <input id="scaleInput" type="number" min="0.3" max="4" step="0.1" />
+    </div>
+    <div class="tiny">Adjust <b>Scale</b> if the sprite looks too big/small.</div>
+
+    <hr style="border:none;height:1px;background:rgba(255,255,255,.25);margin:10px 10px">
+
+    <div id="horseConfig"></div>
+
+    <hr style="border:none;height:1px;background:rgba(255,255,255,.25);margin:10px 10px">
+    <div id="leaderboard"></div>
+  </div>
+
+  <div id="controls">
+    <button id="startBtn" disabled>Start Race</button>
+    <button id="resetBtn" disabled>Reset Race</button>
+    <button id="shuffleBtn" disabled>Shuffle Lanes</button>
+    <span id="loadStatus" class="tiny">Loading sprites…</span>
+  </div>
+
+  <div id="winner"></div>
+
+  <script>
+    // ---------- YOUR SPRITE SETTINGS ----------
+    const SPRITE_SRC_DEFAULT   = "default.jpg"; // your sprite file (same folder)
+    const SPRITE_FRAMES_DEFAULT= 6;             // one row, 6 frames
+    const SPRITE_SCALE_DEFAULT = 1.0;           // size multiplier
+    // -----------------------------------------
+
+    // Canvas
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = 1000;
+    canvas.height = 600;
+
+    // Race state
+    let raceActive = false;
+    let raceFinished = false;
+
+    // Shared sprite config (editable by UI)
+    const spriteConfig = {
+      frames: SPRITE_FRAMES_DEFAULT,
+      scale:  SPRITE_SCALE_DEFAULT,
+      fps:    14
+    };
+
+    // Preload default sprite
+    const horseSprite = new Image();
+    horseSprite.src = SPRITE_SRC_DEFAULT;
+
+    // ---------------- OVAL TRACK ----------------
+    // Waypoints (clockwise). Tweak points to shape the oval.
+    const TRACK_POINTS = [
+      {x: 170, y: 300},  // left-mid (near finish)
+      {x: 320, y: 130},  // top-left
+      {x: 680, y: 130},  // top-right
+      {x: 830, y: 300},  // right-mid
+      {x: 680, y: 470},  // bottom-right
+      {x: 320, y: 470},  // bottom-left
+    ];
+
+    // Catmull-Rom helpers
+    function catmullRom(p0,p1,p2,p3, t){
+      const t2=t*t, t3=t2*t;
+      return {
+        x: 0.5*((2*p1.x)+(-p0.x+p2.x)*t+(2*p0.x-5*p1.x+4*p2.x-p3.x)*t2+(-p0.x+3*p1.x-3*p2.x+p3.x)*t3),
+        y: 0.5*((2*p1.y)+(-p0.y+p2.y)*t+(2*p0.y-5*p1.y+4*p2.y-p3.y)*t2+(-p0.y+3*p1.y-3*p2.y+p3.y)*t3)
+      };
+    }
+    function catmullRomTangent(p0,p1,p2,p3, t){
+      const t2=t*t;
+      return {
+        x: 0.5*((-p0.x+p2.x)+2*(2*p0.x-5*p1.x+4*p2.x-p3.x)*t+3*(-p0.x+3*p1.x-3*p2.x+p3.x)*t2),
+        y: 0.5*((-p0.y+p2.y)+2*(2*p0.y-5*p1.y+4*p2.y-p3.y)*t+3*(-p0.y+3*p1.y-3*p2.y+p3.y)*t2)
+      };
+    }
+    // sample position/tangent at normalized s in [0,1)
+    function sampleTrack(points, s){
+      const n = points.length;
+      const segF = (s%1 + 1)%1 * n;
+      const i1 = Math.floor(segF) % n;
+      const i2 = (i1+1)%n;
+      const i0 = (i1-1+n)%n;
+      const i3 = (i1+2)%n;
+      const t = segF - Math.floor(segF);
+      const P0=points[i0], P1=points[i1], P2=points[i2], P3=points[i3];
+      const pos = catmullRom(P0,P1,P2,P3, t);
+      const tan = catmullRomTangent(P0,P1,P2,P3, t);
+      return { pos, tan };
+    }
+
+    // Draw track visuals (rail + finish line)
+    function drawTrack() {
+      // infield grass is already canvas background
+      // dirt/track ribbon: approximate by thick stroked path
+      ctx.save();
+      ctx.lineWidth = 70;
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = '#c48a3a'; // dirt
+      ctx.beginPath();
+      let s = 0;
+      const steps = 240;
+      for (let i=0;i<=steps;i++){
+        const t = i/steps;
+        const P = sampleTrack(TRACK_POINTS, t).pos;
+        if (i===0) ctx.moveTo(P.x,P.y); else ctx.lineTo(P.x,P.y);
+      }
+      ctx.stroke();
+
+      // inner rail
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = '#ffffff';
+      ctx.beginPath();
+      for (let i=0;i<=steps;i++){
+        const t = i/steps;
+        const S = sampleTrack(TRACK_POINTS, t);
+        const nx = -S.tan.y, ny = S.tan.x;
+        const len = Math.hypot(nx,ny)||1;
+        const uxn = nx/len, uyn = ny/len;
+        const off = -40; // inner offset
+        const x = S.pos.x + uxn*off;
+        const y = S.pos.y + uyn*off;
+        if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+      }
+      ctx.stroke();
+      ctx.restore();
+
+      // Finish line (at TRACK_POINTS[0] tangent)
+      const S0 = sampleTrack(TRACK_POINTS, 0);
+      const tx = S0.tan.x, ty = S0.tan.y;
+      // normal for a small checker bar across track
+      const nlen = Math.hypot(-ty, tx)||1;
+      const nx = -ty/nlen, ny = tx/nlen;
+      const cx = S0.pos.x, cy = S0.pos.y;
+      const half = 40;
+      // checkered pattern
+      for (let i=-half; i<half; i+=10){
+        ctx.fillStyle = (Math.floor((i+half)/10)%2===0) ? '#000' : '#fff';
+        ctx.fillRect(cx + nx*i - 3, cy + ny*i - 3, 6, 6);
+      }
+      // small label
+      ctx.fillStyle = '#fff';
+      ctx.font = '12px Arial';
+      ctx.fillText('FINISH', cx + nx*(half+12), cy + ny*(half+12));
+    }
+
+    // --------------- HORSES ----------------
+    // lane offset helper (middle lane ~ 0)
+    const LANE_OFFSET_PIXELS = [0, -24, -12, 0, 12, 24]; // index by lane (1..5)
+
+    const horses = [
+      { name:'Thunder',   lane:1, color:'#8B0000', progress:0, totalProgress:0, laneOffsetPx:LANE_OFFSET_PIXELS[1], speed:0, step:0, animTime:0, sprite:null,
+        drawX:0, drawY:0, drawAngle:0, stats:{ baseSpeed:3.4, stamina:0.75, sprint:1.10, variance:0.25, fatigue:0.35 } },
+      { name:'Lightning', lane:2, color:'#FFD700', progress:0, totalProgress:0, laneOffsetPx:LANE_OFFSET_PIXELS[2], speed:0, step:0, animTime:0, sprite:null,
+        drawX:0, drawY:0, drawAngle:0, stats:{ baseSpeed:3.2, stamina:0.95, sprint:1.05, variance:0.18, fatigue:0.25 } },
+      { name:'Storm',     lane:3, color:'#4169E1', progress:0, totalProgress:0, laneOffsetPx:LANE_OFFSET_PIXELS[3], speed:0, step:0, animTime:0, sprite:null,
+        drawX:0, drawY:0, drawAngle:0, stats:{ baseSpeed:3.0, stamina:1.10, sprint:0.98, variance:0.15, fatigue:0.18 } },
+      { name:'Blaze',     lane:4, color:'#FF4500', progress:0, totalProgress:0, laneOffsetPx:LANE_OFFSET_PIXELS[4], speed:0, step:0, animTime:0, sprite:null,
+        drawX:0, drawY:0, drawAngle:0, stats:{ baseSpeed:3.6, stamina:0.70, sprint:1.15, variance:0.30, fatigue:0.40 } },
+      { name:'Shadow',    lane:5, color:'#2F4F4F', progress:0, totalProgress:0, laneOffsetPx:LANE_OFFSET_PIXELS[5], speed:0, step:0, animTime:0, sprite:null,
+        drawX:0, drawY:0, drawAngle:0, stats:{ baseSpeed:3.1, stamina:1.00, sprint:1.00, variance:0.20, fatigue:0.25 } },
+    ];
+
+    // UI: build config
+    const horseConfigEl = document.getElementById('horseConfig');
+    function makeHorseRow(h) {
+      const wrap = document.createElement('div');
+      wrap.className = 'horse-info';
+      wrap.innerHTML = `
+        <div class="row">
+          <label>Lane ${h.lane}</label>
+          <input type="text" class="nm" value="${h.name}">
+          <input type="text" class="hex" value="${h.color}" title="Color (badge)">
+        </div>
+        <div class="row">
+          <label>Sprite</label>
+          <input type="file" class="file" accept="image/png,image/webp,image/jpeg">
+        </div>
+      `;
+      const statsHtml = document.createElement('div');
+      statsHtml.innerHTML = `
+        <div class="row"><label>Base</label>
+          <input type="number" step="0.1" class="base" value="${h.stats.baseSpeed}">
+          <label>Stam</label>
+          <input type="number" step="0.05" class="stam" value="${h.stats.stamina}">
+        </div>
+        <div class="row"><label>Sprint</label>
+          <input type="number" step="0.05" class="sprint" value="${h.stats.sprint}">
+          <label>Var</label>
+          <input type="number" step="0.05" class="var" value="${h.stats.variance}">
+        </div>
+        <div class="row"><label>Fatigue</label>
+          <input type="number" step="0.05" class="fat" value="${h.stats.fatigue}">
+        </div>
+      `;
+      wrap.appendChild(statsHtml);
+
+      wrap.querySelector('.nm').onchange  = e => { h.name = e.target.value.trim() || h.name; refreshLeaderboard(); };
+      wrap.querySelector('.hex').onchange = e => { h.color = e.target.value.trim() || h.color; refreshLeaderboard(); };
+
+      statsHtml.querySelector('.base').oninput   = e => h.stats.baseSpeed = +e.target.value || h.stats.baseSpeed;
+      statsHtml.querySelector('.stam').oninput   = e => h.stats.stamina   = +e.target.value || h.stats.stamina;
+      statsHtml.querySelector('.sprint').oninput = e => h.stats.sprint    = +e.target.value || h.stats.sprint;
+      statsHtml.querySelector('.var').oninput    = e => h.stats.variance  = +e.target.value || h.stats.variance;
+      statsHtml.querySelector('.fat').oninput    = e => h.stats.fatigue   = +e.target.value || h.stats.fatigue;
+
+      wrap.querySelector('.file').onchange = e => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => { h.sprite = { img, url }; refreshButtonsIfLoaded(); };
+        img.src = url;
+      };
+
+      return wrap;
+    }
+    horses.forEach(h => horseConfigEl.appendChild(makeHorseRow(h)));
+
+    // Frames/Scale inputs
+    const framesInput = document.getElementById('framesInput');
+    const scaleInput  = document.getElementById('scaleInput');
+    framesInput.value = SPRITE_FRAMES_DEFAULT;
+    scaleInput.value  = SPRITE_SCALE_DEFAULT;
+    framesInput.oninput = () => { spriteConfig.frames = Math.max(2, Math.min(32, +framesInput.value||SPRITE_FRAMES_DEFAULT)); };
+    scaleInput.oninput  = () => { spriteConfig.scale  = Math.max(0.3, Math.min(4, +scaleInput.value||SPRITE_SCALE_DEFAULT)); };
+
+    // Leaderboard
+    const leaderboard = document.getElementById('leaderboard');
+    function refreshLeaderboard() {
+      const sorted = [...horses].sort((a,b) => b.totalProgress - a.totalProgress);
+      leaderboard.innerHTML = sorted.map((h,i) => {
+        const pct = Math.max(0, Math.min(100, Math.round(h.totalProgress * 100)));
+        return `<div class="horse-info">${i+1}. <b>${h.name}</b> — Lane ${h.lane} — <span style="color:${h.color}">●</span> ${pct}%</div>`;
+      }).join('');
+    }
+
+    // Physics / update along the oval (one full lap = finish)
+    function updateHorses(dt) {
+      if (!raceActive || raceFinished) return;
+
+      // k controls "track length" in pixels -> progress speed (bigger = longer race)
+      const k = 2200;
+
+      horses.forEach(h => {
+        // Stats-based speed
+        const prog = Math.min(1, h.totalProgress);
+        const startBoost  = 1 + (h.stats.sprint - 1) * Math.exp(-prog * 6);
+        const staminaHold = Math.pow(h.stats.stamina, prog * 2.2);
+        const tired       = 1 - h.stats.fatigue * Math.max(0, prog - 0.5);
+        const jitter      = (Math.random() - 0.5) * h.stats.variance;
+        const s = h.stats.baseSpeed * startBoost * staminaHold * tired + jitter;
+
+        h.speed = Math.max(0.8, s);
+
+        // Convert to progress (0..1 around the loop)
+        const deltaProg = (h.speed / k);
+        h.totalProgress += deltaProg;      // used to decide winner (one full lap)
+        h.progress = h.totalProgress % 1;  // where to draw on track
+
+        // Merge toward rail on final straight
+        const MERGE_START = 0.75;
+        if (h.progress > MERGE_START || h.progress < 0.05) {
+          h.laneOffsetPx += (0 - h.laneOffsetPx) * 0.04;
+        }
+
+        // Compute draw position and angle
+        const S = sampleTrack(TRACK_POINTS, h.progress);
+        const tx = S.tan.x, ty = S.tan.y;
+        const angle = Math.atan2(ty, tx);
+        // normal (left of motion)
+        let nx = -ty, ny = tx;
+        const nlen = Math.hypot(nx, ny) || 1; nx/=nlen; ny/=nlen;
+
+        h.drawX = S.pos.x + nx * h.laneOffsetPx;
+        h.drawY = S.pos.y + ny * h.laneOffsetPx;
+        h.drawAngle = angle;
+
+        // winner check: one full lap
+        if (h.totalProgress >= 1 && !raceFinished) {
+          raceFinished = true; raceActive = false; showWinner(h);
+        }
+      });
+
+      refreshLeaderboard();
+    }
+
+    // Sprite draw (uses either default sprite or per-horse upload)
+    function drawHorseSprite(horse, dt) {
+      const { frames, scale, fps } = spriteConfig;
+      const hasSprite = horse.sprite && horse.sprite.img && horse.sprite.img.complete;
+
+      ctx.save();
+      ctx.translate(horse.drawX, horse.drawY);
+      ctx.rotate(horse.drawAngle);
+
+      // Choose image
+      let img, frameW, frameH, framesCount, scaleUse;
+      if (hasSprite) {
+        img = horse.sprite.img;
+        framesCount = frames;
+        frameW = Math.floor(img.width / framesCount);
+        frameH = img.height;
+        scaleUse = scale;
+      } else if (horseSprite.complete) {
+        img = horseSprite;
+        framesCount = SPRITE_FRAMES_DEFAULT;
+        frameW = Math.floor(img.width / framesCount);
+        frameH = img.height;
+        scaleUse = SPRITE_SCALE_DEFAULT;
+      } else {
+        // fallback badge
+        ctx.fillStyle = horse.color;
+        ctx.beginPath(); ctx.arc(0,0,18,0,Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.font='bold 14px Arial'; ctx.textAlign='center'; ctx.textBaseline='middle';
+        ctx.fillText(horse.lane, 0, 0);
+        ctx.restore();
+        return;
+      }
+
+      const animFps = fps + horse.speed * 0.6;
+      horse.animTime = (horse.animTime || 0) + animFps * dt;
+      const frameIndex = Math.floor(horse.animTime) % framesCount;
+
+      const drawW = frameW * scaleUse;
+      const drawH = frameH * scaleUse;
+
+      ctx.drawImage(
+        img,
+        frameIndex * frameW, 0, frameW, frameH,
+        -drawW*0.5, -drawH*0.65, drawW, drawH   // shift up a bit so hooves sit nicer
+      );
+
+      // Nameplate
+      ctx.fillStyle = 'rgba(0,0,0,.45)';
+      ctx.fillRect(-drawW*0.35, drawH*0.45-10, drawW*0.7, 18);
+      ctx.fillStyle = '#fff';
+      ctx.font = '12px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(horse.name, 0, drawH*0.45 - 1);
+
+      ctx.restore();
+    }
+
+    // Controls & winner
+    const startBtn   = document.getElementById('startBtn');
+    const resetBtn   = document.getElementById('resetBtn');
+    const shuffleBtn = document.getElementById('shuffleBtn');
+    const loadStatus = document.getElementById('loadStatus');
+
+    function startRace() {
+      if (raceActive) return;
+      raceActive = true; raceFinished = false;
+      startBtn.disabled = true;
+      resetBtn.disabled = true;
+      document.getElementById('winner').style.display = 'none';
+      lastTs = performance.now();
+    }
+
+    function resetRace() {
+      raceActive = false; raceFinished = false;
+      horses.forEach((h,i)=>{
+        h.totalProgress = 0;
+        h.progress = 0;
+        h.animTime = 0;
+        h.laneOffsetPx = LANE_OFFSET_PIXELS[h.lane];
+      });
+      startBtn.disabled = false;
+      resetBtn.disabled = true;
+      document.getElementById('winner').style.display = 'none';
+      refreshLeaderboard();
+    }
+
+    function shuffleLanes() {
+      const ids = [1,2,3,4,5].sort(()=>Math.random()-0.5);
+      horses.forEach((h,i)=>{ h.lane = ids[i]; h.laneOffsetPx = LANE_OFFSET_PIXELS[h.lane]; });
+      refreshLeaderboard();
+    }
+
+    function showWinner(horse) {
+      const el = document.getElementById('winner');
+      el.innerHTML = `🏆 ${horse.name} WINS! 🏆<br/><br/>Lane ${horse.lane}`;
+      el.style.display = 'block';
+      resetBtn.disabled = false;
+      startBtn.disabled = true;
+    }
+
+    function refreshButtonsIfLoaded() {
+      const ready = horseSprite.complete || horses.some(h => h.sprite?.img?.complete);
+      startBtn.disabled   = !ready;
+      resetBtn.disabled   = true;
+      shuffleBtn.disabled = !ready;
+      loadStatus.textContent = ready ? "Sprites loaded. Ready to race!" : "Loading sprites…";
+    }
+    horseSprite.onload = refreshButtonsIfLoaded;
+
+    // Draw loop
+    let lastTs = performance.now();
+    function loop(ts) {
+      const dt = Math.min(0.05, (ts - lastTs) / 1000);
+      lastTs = ts;
+
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      drawTrack();
+      horses.forEach(h => drawHorseSprite(h, dt));
+      updateHorses(dt);
+
+      requestAnimationFrame(loop);
+    }
+
+    // Wire buttons
+    document.getElementById('startBtn').onclick = startRace;
+    document.getElementById('resetBtn').onclick = resetRace;
+    document.getElementById('shuffleBtn').onclick = shuffleLanes;
+
+    // Init
+    const leaderboardEl = document.getElementById('leaderboard');
+    refreshLeaderboard();
+    refreshButtonsIfLoaded();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
