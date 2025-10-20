@@ -10,7 +10,7 @@
     #gameCanvas{display:block;margin:20px auto;background:linear-gradient(#7CB342,#558B2F);border:5px solid #8B4513;box-shadow:0 10px 30px rgba(0,0,0,.3)}
     #ui{
       position:absolute;top:20px;left:20px;background:rgba(139,69,19,.92);
-      color:#fff;padding:14px;border-radius:10px;min-width:300px;max-width:360px
+      color:#fff;padding:14px;border-radius:10px;min-width:320px;max-width:380px
     }
     .row{display:flex;gap:8px;align-items:center;margin:6px 0}
     .row label{min-width:64px;font-size:13px}
@@ -19,7 +19,7 @@
     }
     .row input[type="file"]{flex:1}
     .tiny{font-size:12px;opacity:.9}
-    .horse-info{background:rgba(0,0,0,.25);padding:6px 8px;border-radius:6px;margin:6px 0}
+    .horse-info{background:rgba(0,0,0,.25);padding:6px 8px;border-radius:6px;margin:8px 0}
     #controls{
       position:absolute;bottom:20px;left:50%;transform:translateX(-50%);
       background:rgba(139,69,19,.92);color:#fff;border-radius:10px;padding:14px 16px;
@@ -36,6 +36,7 @@
       background:rgba(255,215,0,.96);padding:28px;border-radius:14px;font-weight:700;
       color:#8B4513;display:none;text-align:center;font-size:22px;box-shadow:0 0 40px rgba(255,215,0,.8)
     }
+    #loadStatus{margin-left:10px;font-size:13px}
   </style>
 </head>
 <body>
@@ -45,79 +46,83 @@
     <h3>🏇 Sprite Horse Racing</h3>
 
     <div class="tiny" style="margin-bottom:8px">
-      Use a PNG sprite sheet: one row, multiple frames side-by-side. Set the frame count below.
+      This page auto-loads <b>default.jpg</b> (6 frames, one row). You can override any horse with your own PNG/JPG.
     </div>
-
-    <div id="horseConfig"></div>
 
     <div class="row">
       <label>Frames</label>
-      <input id="framesInput" type="number" min="2" max="32" value="8" />
+      <input id="framesInput" type="number" min="2" max="32" />
     </div>
     <div class="row">
       <label>Scale</label>
-      <input id="scaleInput" type="number" min="0.2" max="4" step="0.1" value="1.2" />
+      <input id="scaleInput" type="number" min="0.2" max="4" step="0.1" />
     </div>
-    <div class="tiny">Tip: If the horse looks squished or tiny, adjust <b>Frames</b> and <b>Scale</b>.</div>
+    <div class="tiny">Tip: If the horse looks too small/large, change <b>Scale</b>.</div>
 
     <hr style="border:none;height:1px;background:rgba(255,255,255,.25);margin:10px 0">
 
+    <div id="horseConfig"></div>
+
+    <hr style="border:none;height:1px;background:rgba(255,255,255,.25);margin:10px 0">
     <div id="leaderboard"></div>
   </div>
 
   <div id="controls">
-    <button id="startBtn">Start Race</button>
+    <button id="startBtn" disabled>Start Race</button>
     <button id="resetBtn" disabled>Reset Race</button>
-    <button id="shuffleBtn">Shuffle Lanes</button>
+    <button id="shuffleBtn" disabled>Shuffle Lanes</button>
+    <span id="loadStatus" class="tiny">Loading sprites…</span>
   </div>
 
   <div id="winner"></div>
 
   <script>
-    // --- Canvas & world ---
+    // ---------- YOUR SPRITE SETTINGS ----------
+    const SPRITE_SRC_DEFAULT = "default.jpg"; // your file name (same folder)
+    const SPRITE_FRAMES_DEFAULT = 6;          // your frame count (one row)
+    const SPRITE_SCALE_DEFAULT  = 1.0;        // 1.0 = original size
+    // -----------------------------------------
+
+    // Canvas & world
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
-    canvas.width = 1000;
+    canvas.width = 3000;
     canvas.height = 600;
 
     const laneGap = 100;
-    const laneOffset = 100; // first lane Y
-    const finishLine = 900;
+    const laneOffset = 100;
+    const finishLine = 3000;
 
     let raceActive = false;
     let raceFinished = false;
 
-    // --- Horses (basic defaults) ---
-
-const horses = [
-  { name:'Thunder', lane:1, color:'#8B0000', x:50, y:laneOffset+0*laneGap,
-    speed:0, step:0, animTime:0, sprite:null,
-    stats:{ baseSpeed:3.4, stamina:0.75, sprint:1.10, variance:0.25, fatigue:0.35 } },
-  { name:'Lightning', lane:2, color:'#FFD700', x:50, y:laneOffset+1*laneGap,
-    speed:0, step:0, animTime:0, sprite:null,
-    stats:{ baseSpeed:3.2, stamina:0.95, sprint:1.05, variance:0.18, fatigue:0.25 } },
-  { name:'Storm', lane:3, color:'#4169E1', x:50, y:laneOffset+2*laneGap,
-    speed:0, step:0, animTime:0, sprite:null,
-    stats:{ baseSpeed:3.0, stamina:1.10, sprint:0.98, variance:0.15, fatigue:0.18 } },
-  { name:'Blaze', lane:4, color:'#FF4500', x:50, y:laneOffset+3*laneGap,
-    speed:0, step:0, animTime:0, sprite:null,
-    stats:{ baseSpeed:3.6, stamina:0.70, sprint:1.15, variance:0.30, fatigue:0.40 } },
-  { name:'Shadow', lane:5, color:'#2F4F4F', x:50, y:laneOffset+4*laneGap,
-    speed:0, step:0, animTime:0, sprite:null,
-    stats:{ baseSpeed:3.1, stamina:1.00, sprint:1.00, variance:0.20, fatigue:0.25 } },
-];
-
-
-    // --- Sprite settings (shared) ---
+    // Shared sprite config (editable via UI)
     const spriteConfig = {
-      frames: 8,   // horizontal frames in the sheet
-      scale: 1.2,  // drawing scale
-      fps: 14      // base animation fps, modulated by speed
+      frames: SPRITE_FRAMES_DEFAULT,
+      scale:  SPRITE_SCALE_DEFAULT,
+      fps:    14
     };
 
-    // --- UI: per-horse config & file upload ---
-    const horseConfigEl = document.getElementById('horseConfig');
+    // Preload the default sprite
+    const horseSprite = new Image();
+    horseSprite.src = SPRITE_SRC_DEFAULT;
 
+    // Horses with stats
+    const horses = [
+      { name:'Thunder',   lane:1, color:'#8B0000', x:50, y:laneOffset+0*laneGap, speed:0, step:0, animTime:0, sprite:null,
+        stats:{ baseSpeed:3.4, stamina:0.75, sprint:1.10, variance:0.25, fatigue:0.35 } },
+      { name:'Lightning', lane:2, color:'#FFD700', x:50, y:laneOffset+1*laneGap, speed:0, step:0, animTime:0, sprite:null,
+        stats:{ baseSpeed:3.2, stamina:0.95, sprint:1.05, variance:0.18, fatigue:0.25 } },
+      { name:'Storm',     lane:3, color:'#4169E1', x:50, y:laneOffset+2*laneGap, speed:0, step:0, animTime:0, sprite:null,
+        stats:{ baseSpeed:3.0, stamina:1.10, sprint:0.98, variance:0.15, fatigue:0.18 } },
+      { name:'Blaze',     lane:4, color:'#FF4500', x:50, y:laneOffset+3*laneGap, speed:0, step:0, animTime:0, sprite:null,
+        stats:{ baseSpeed:3.6, stamina:0.70, sprint:1.15, variance:0.30, fatigue:0.40 } },
+      { name:'Shadow',    lane:5, color:'#2F4F4F', x:50, y:laneOffset+4*laneGap, speed:0, step:0, animTime:0, sprite:null,
+        stats:{ baseSpeed:3.1, stamina:1.00, sprint:1.00, variance:0.20, fatigue:0.25 } },
+    ];
+
+    // Build per-horse config panel
+    const horseConfigEl = document.getElementById('horseConfig');
     function makeHorseRow(h) {
       const wrap = document.createElement('div');
       wrap.className = 'horse-info';
@@ -126,7 +131,7 @@ const horses = [
         <div class="row">
           <label>Lane ${h.lane}</label>
           <input type="text" class="nm" value="${h.name}">
-          <input type="text" class="hex" value="${h.color}" title="Color (used for fallback badge)">
+          <input type="text" class="hex" value="${h.color}" title="Color (badge)">
         </div>
         <div class="row">
           <label>Sprite</label>
@@ -134,69 +139,63 @@ const horses = [
         </div>
       `;
 
+      // Stats UI
+      const statsHtml = document.createElement('div');
+      statsHtml.innerHTML = `
+        <div class="row"><label>Base</label>
+          <input type="number" step="0.1" class="base" value="${h.stats.baseSpeed}">
+          <label>Stam</label>
+          <input type="number" step="0.05" class="stam" value="${h.stats.stamina}">
+        </div>
+        <div class="row"><label>Sprint</label>
+          <input type="number" step="0.05" class="sprint" value="${h.stats.sprint}">
+          <label>Var</label>
+          <input type="number" step="0.05" class="var" value="${h.stats.variance}">
+        </div>
+        <div class="row"><label>Fatigue</label>
+          <input type="number" step="0.05" class="fat" value="${h.stats.fatigue}">
+        </div>
+      `;
+      wrap.appendChild(statsHtml);
 
-// Stats row (sliders/inputs)
-const statsHtml = document.createElement('div');
-statsHtml.innerHTML = `
-  <div class="row"><label>Base</label>
-    <input type="number" step="0.1" class="base" value="${h.stats.baseSpeed}">
-    <label>Stam</label>
-    <input type="number" step="0.05" class="stam" value="${h.stats.stamina}">
-  </div>
-  <div class="row"><label>Sprint</label>
-    <input type="number" step="0.05" class="sprint" value="${h.stats.sprint}">
-    <label>Var</label>
-    <input type="number" step="0.05" class="var" value="${h.stats.variance}">
-  </div>
-  <div class="row"><label>Fatigue</label>
-    <input type="number" step="0.05" class="fat" value="${h.stats.fatigue}">
-  </div>
-`;
-wrap.appendChild(statsHtml);
-
-// Wire the inputs
-statsHtml.querySelector('.base').oninput   = e => h.stats.baseSpeed = +e.target.value || h.stats.baseSpeed;
-statsHtml.querySelector('.stam').oninput   = e => h.stats.stamina   = +e.target.value || h.stats.stamina;
-statsHtml.querySelector('.sprint').oninput = e => h.stats.sprint    = +e.target.value || h.stats.sprint;
-statsHtml.querySelector('.var').oninput    = e => h.stats.variance  = +e.target.value || h.stats.variance;
-statsHtml.querySelector('.fat').oninput    = e => h.stats.fatigue   = +e.target.value || h.stats.fatigue;
-
-
-      // Wire name/color changes
+      // Wire name/color edits
       wrap.querySelector('.nm').onchange = e => { h.name = e.target.value.trim() || h.name; refreshLeaderboard(); };
       wrap.querySelector('.hex').onchange = e => { h.color = e.target.value.trim() || h.color; refreshLeaderboard(); };
 
-      // File upload -> sprite image
+      // Wire stats edits
+      statsHtml.querySelector('.base').oninput   = e => h.stats.baseSpeed = +e.target.value || h.stats.baseSpeed;
+      statsHtml.querySelector('.stam').oninput   = e => h.stats.stamina   = +e.target.value || h.stats.stamina;
+      statsHtml.querySelector('.sprint').oninput = e => h.stats.sprint    = +e.target.value || h.stats.sprint;
+      statsHtml.querySelector('.var').oninput    = e => h.stats.variance  = +e.target.value || h.stats.variance;
+      statsHtml.querySelector('.fat').oninput    = e => h.stats.fatigue   = +e.target.value || h.stats.fatigue;
+
+      // Optional: override a horse by uploading a different sprite
       wrap.querySelector('.file').onchange = e => {
         const file = e.target.files[0];
         if (!file) return;
         const url = URL.createObjectURL(file);
         const img = new Image();
-        img.onload = () => {
-          // store sprite meta on horse
-          h.sprite = { img, url };
-        };
+        img.onload = () => { h.sprite = { img, url }; refreshButtonsIfLoaded(); };
         img.src = url;
       };
 
       return wrap;
     }
-
     horses.forEach(h => horseConfigEl.appendChild(makeHorseRow(h)));
 
-    // Shared controls
+    // Frames/Scale UI -> set defaults
     const framesInput = document.getElementById('framesInput');
     const scaleInput  = document.getElementById('scaleInput');
-    framesInput.oninput = () => { spriteConfig.frames = Math.max(2, Math.min(32, +framesInput.value||8)); };
-    scaleInput.oninput  = () => { spriteConfig.scale  = Math.max(0.2, Math.min(4, +scaleInput.value||1.2)); };
+    framesInput.value = SPRITE_FRAMES_DEFAULT;
+    scaleInput.value  = SPRITE_SCALE_DEFAULT;
+    framesInput.oninput = () => { spriteConfig.frames = Math.max(2, Math.min(32, +framesInput.value||SPRITE_FRAMES_DEFAULT)); };
+    scaleInput.oninput  = () => { spriteConfig.scale  = Math.max(0.2, Math.min(4, +scaleInput.value||SPRITE_SCALE_DEFAULT)); };
 
-    // --- Track ---
+    // Track drawing
     function drawTrack() {
-      // grass
       ctx.fillStyle = '#558B2F';
       ctx.fillRect(0,0,canvas.width,canvas.height);
 
-      // dashed lane lines
       ctx.strokeStyle = 'white';
       ctx.lineWidth = 2;
       ctx.setLineDash([10,5]);
@@ -218,13 +217,38 @@ statsHtml.querySelector('.fat').oninput    = e => h.stats.fatigue   = +e.target.
       }
     }
 
-    // --- Sprite drawing ---
+    // Sprite drawing
     function drawHorseSprite(horse, dt) {
       const { frames, scale, fps } = spriteConfig;
       const hasSprite = horse.sprite && horse.sprite.img && horse.sprite.img.complete;
 
+      // Use preloaded default sprite if no per-horse upload
+      if (!hasSprite && horseSprite.complete) {
+        ctx.save();
+        ctx.translate(horse.x, horse.y);
+
+        const animFps = fps + horse.speed * 0.6;
+        horse.animTime = (horse.animTime || 0) + animFps * dt;
+
+        const frameWidth  = horseSprite.width / SPRITE_FRAMES_DEFAULT;
+        const frameHeight = horseSprite.height;
+        const frame       = Math.floor(horse.animTime) % SPRITE_FRAMES_DEFAULT;
+
+        const drawWidth  = frameWidth  * SPRITE_SCALE_DEFAULT;
+        const drawHeight = frameHeight * SPRITE_SCALE_DEFAULT;
+
+        ctx.drawImage(
+          horseSprite,
+          frame * frameWidth, 0, frameWidth, frameHeight,
+          -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight
+        );
+
+        ctx.restore();
+        return;
+      }
+
+      // Fallback badge if nothing loaded yet
       if (!hasSprite) {
-        // fallback: small badge + lane number (until a sprite is uploaded)
         ctx.save();
         ctx.translate(horse.x, horse.y);
         ctx.fillStyle = horse.color;
@@ -235,12 +259,11 @@ statsHtml.querySelector('.fat').oninput    = e => h.stats.fatigue   = +e.target.
         return;
       }
 
+      // Draw per-horse uploaded sprite
       const img = horse.sprite.img;
       const frameW = Math.floor(img.width / frames);
-      const frameH = img.height; // one row sheet
+      const frameH = img.height;
 
-      // advance animation timer by speed-modulated fps
-      // faster horses animate slightly faster (feel of stride rate)
       const animFps = fps + horse.speed * 0.6;
       horse.animTime = (horse.animTime || 0) + animFps * dt;
       const frameIndex = Math.floor(horse.animTime) % frames;
@@ -252,11 +275,11 @@ statsHtml.querySelector('.fat').oninput    = e => h.stats.fatigue   = +e.target.
       ctx.translate(horse.x, horse.y);
       ctx.drawImage(
         img,
-        frameIndex * frameW, 0, frameW, frameH,       // src rect
-        -drawW*0.5, -drawH*0.5, drawW, drawH          // dst (centered)
+        frameIndex * frameW, 0, frameW, frameH,
+        -drawW*0.5, -drawH*0.5, drawW, drawH
       );
 
-      // optional nameplate
+      // nameplate
       ctx.fillStyle = 'rgba(0,0,0,.5)';
       ctx.fillRect(-drawW*0.3, drawH*0.5-10, drawW*0.6, 18);
       ctx.fillStyle = '#fff';
@@ -267,7 +290,7 @@ statsHtml.querySelector('.fat').oninput    = e => h.stats.fatigue   = +e.target.
       ctx.restore();
     }
 
-    // --- Leaderboard / UI ---
+    // Leaderboard
     const leaderboard = document.getElementById('leaderboard');
     function refreshLeaderboard() {
       const sorted = [...horses].sort((a,b) => b.x - a.x);
@@ -277,14 +300,43 @@ statsHtml.querySelector('.fat').oninput    = e => h.stats.fatigue   = +e.target.
       }).join('');
     }
 
-    // --- Race control ---
+    // Physics with stats
+    function updateHorses(dt) {
+      if (!raceActive || raceFinished) return;
+
+      horses.forEach(h => {
+        const prog = Math.min(1, (h.x - 50) / (finishLine - 50));
+        const startBoost  = 1 + (h.stats.sprint - 1) * Math.exp(-prog * 6);
+        const staminaHold = Math.pow(h.stats.stamina, prog * 2.2);
+        const tired       = 1 - h.stats.fatigue * Math.max(0, prog - 0.5);
+        const jitter      = (Math.random() - 0.5) * h.stats.variance;
+        const s = h.stats.baseSpeed * startBoost * staminaHold * tired + jitter;
+
+        h.speed = Math.max(0.8, s);
+        h.x += h.speed;
+        h.step += h.speed * 0.08;
+
+        if (h.x >= finishLine && !raceFinished) {
+          raceFinished = true; raceActive = false; showWinner(h);
+        }
+      });
+
+      refreshLeaderboard();
+    }
+
+    // Race control
+    const startBtn   = document.getElementById('startBtn');
+    const resetBtn   = document.getElementById('resetBtn');
+    const shuffleBtn = document.getElementById('shuffleBtn');
+    const loadStatus = document.getElementById('loadStatus');
+
     function startRace() {
       if (raceActive) return;
       raceActive = true; raceFinished = false;
-      document.getElementById('startBtn').disabled = true;
-      document.getElementById('resetBtn').disabled = true;
+      startBtn.disabled = true;
+      resetBtn.disabled = true;
       document.getElementById('winner').style.display = 'none';
-      lastTs = performance.now(); // reset timer
+      lastTs = performance.now();
     }
 
     function resetRace() {
@@ -293,8 +345,8 @@ statsHtml.querySelector('.fat').oninput    = e => h.stats.fatigue   = +e.target.
         h.x=50; h.speed=0; h.step=0; h.animTime=0;
         h.y = laneOffset + (h.lane-1)*laneGap;
       });
-      document.getElementById('startBtn').disabled = false;
-      document.getElementById('resetBtn').disabled = true;
+      startBtn.disabled = false;
+      resetBtn.disabled = true;
       document.getElementById('winner').style.display = 'none';
       refreshLeaderboard();
     }
@@ -309,44 +361,24 @@ statsHtml.querySelector('.fat').oninput    = e => h.stats.fatigue   = +e.target.
       const el = document.getElementById('winner');
       el.innerHTML = `🏆 ${horse.name} WINS! 🏆<br/><br/>Lane ${horse.lane}`;
       el.style.display = 'block';
-      document.getElementById('resetBtn').disabled = false;
-      document.getElementById('startBtn').disabled = true;
+      resetBtn.disabled = false;
+      startBtn.disabled = true;
     }
 
-    // --- Physics / update ---
-  function updateHorses(dt) {
-  if (!raceActive || raceFinished) return;
-
-  horses.forEach(h => {
-    // distance progress 0..1
-    const prog = Math.min(1, (h.x - 50) / (finishLine - 50));
-
-    // components
-    const startBoost = 1 + (h.stats.sprint - 1) * Math.exp(-prog * 6); // big at start, fades
-    const staminaHold = Math.pow(h.stats.stamina, prog * 2.2);         // >1 holds speed later
-    const tired = 1 - h.stats.fatigue * Math.max(0, prog - 0.5);       // fatigue after halfway
-    const jitter = (Math.random() - 0.5) * h.stats.variance;           // randomness
-
-    // final per-frame speed
-    const s = h.stats.baseSpeed * startBoost * staminaHold * tired + jitter;
-
-    h.speed = Math.max(0.8, s);         // keep it reasonable
-    h.x += h.speed;
-    h.step += h.speed * 0.08;
-
-    if (h.x >= finishLine && !raceFinished) {
-      raceFinished = true; raceActive = false; showWinner(h);
+    // Enable buttons when default sprite is ready (or a horse gets an override)
+    function refreshButtonsIfLoaded() {
+      const allReady = horseSprite.complete || horses.some(h => h.sprite?.img?.complete);
+      startBtn.disabled   = !allReady;
+      resetBtn.disabled   = true;
+      shuffleBtn.disabled = !allReady;
+      loadStatus.textContent = allReady ? "Sprites loaded. Ready to race!" : "Loading sprites…";
     }
-  });
+    horseSprite.onload = refreshButtonsIfLoaded;
 
-  refreshLeaderboard();
-}
-
-
-    // --- Game loop with proper dt ---
+    // Game loop with dt
     let lastTs = performance.now();
     function loop(ts) {
-      const dt = Math.min(0.05, (ts - lastTs) / 1000); // seconds, clamp to avoid big jumps
+      const dt = Math.min(0.05, (ts - lastTs) / 1000);
       lastTs = ts;
 
       drawTrack();
@@ -363,6 +395,7 @@ statsHtml.querySelector('.fat').oninput    = e => h.stats.fatigue   = +e.target.
 
     // Init
     refreshLeaderboard();
+    refreshButtonsIfLoaded();
     requestAnimationFrame(loop);
   </script>
 </body>
