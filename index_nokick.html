@@ -122,15 +122,15 @@
     // Horses with stats
     const horses = [
       { name:'Thunder',   lane:1, color:'#8B0000', x:50, y:laneOffset+0*laneGap, speed:0, step:0, animTime:0, sprite:null,
-        stats:{ baseSpeed:3.4, stamina:0.75, sprint:1.10, variance:0.25, fatigue:0.35, kick:0.80, finalBoost:1.2 } },
+        stats:{ baseSpeed:3.4, stamina:0.75, sprint:1.10, variance:0.25, fatigue:0.35 } },
       { name:'Lightning', lane:2, color:'#FFD700', x:50, y:laneOffset+1*laneGap, speed:0, step:0, animTime:0, sprite:null,
-        stats:{ baseSpeed:3.2, stamina:0.95, sprint:1.05, variance:0.18, fatigue:0.25, kick:0.55, finalBoost:1.5 } },
+        stats:{ baseSpeed:3.2, stamina:0.95, sprint:1.05, variance:0.18, fatigue:0.25 } },
       { name:'Storm',     lane:3, color:'#4169E1', x:50, y:laneOffset+2*laneGap, speed:0, step:0, animTime:0, sprite:null,
-        stats:{ baseSpeed:3.0, stamina:1.10, sprint:0.98, variance:0.15, fatigue:0.18, kick:0.45, finalBoost:1.0  } },
+        stats:{ baseSpeed:3.0, stamina:1.10, sprint:0.98, variance:0.15, fatigue:0.18 } },
       { name:'Blaze',     lane:4, color:'#FF4500', x:50, y:laneOffset+3*laneGap, speed:0, step:0, animTime:0, sprite:null,
-        stats:{ baseSpeed:3.6, stamina:0.70, sprint:1.15, variance:0.30, fatigue:0.40, kick:0.60, finalBoost:2  } },
+        stats:{ baseSpeed:3.6, stamina:0.70, sprint:1.15, variance:0.30, fatigue:0.40 } },
       { name:'Shadow',    lane:5, color:'#2F4F4F', x:50, y:laneOffset+4*laneGap, speed:0, step:0, animTime:0, sprite:null,
-        stats:{ baseSpeed:3.1, stamina:1.00, sprint:1.00, variance:0.20, fatigue:0.25, kick:0.90, finalBoost:0.5  } },
+        stats:{ baseSpeed:3.1, stamina:1.00, sprint:1.00, variance:0.20, fatigue:0.25 } },
     ];
 
     // Build per-horse config panel
@@ -167,12 +167,6 @@
         <div class="row"><label>Fatigue</label>
           <input type="number" step="0.05" class="fat" value="${h.stats.fatigue}">
         </div>
-	<div class="row"><label>Kick</label>
-  	<input type="number" step="0.05" min="0" max="1" class="kick" value="${h.stats.kick}">
-	</div>
-	<div class="row"><label>Final</label>
-  	<input type="number" step="0.05" min="1" max="2" class="fboost" value="${h.stats.finalBoost}">
-	</div>
       `;
       wrap.appendChild(statsHtml);
 
@@ -184,8 +178,6 @@
       statsHtml.querySelector('.sprint').oninput = e => h.stats.sprint    = +e.target.value || h.stats.sprint;
       statsHtml.querySelector('.var').oninput    = e => h.stats.variance  = +e.target.value || h.stats.variance;
       statsHtml.querySelector('.fat').oninput    = e => h.stats.fatigue   = +e.target.value || h.stats.fatigue;
-      statsHtml.querySelector('.kick').oninput = e => h.stats.kick = +e.target.value || h.stats.kick;
-      statsHtml.querySelector('.fboost').oninput = e => h.stats.finalBoost = +e.target.value || h.stats.finalBoost;
 
       wrap.querySelector('.file').onchange = e => {
         const file = e.target.files[0];
@@ -223,35 +215,6 @@
         ctx.stroke();
       }
       ctx.setLineDash([]);
-
-	// Furlong markers across the track
-	const FURLONGS_TOTAL = 8; // adjust if you want more markers
-	for (let f = 1; f <= FURLONGS_TOTAL; f++) {
-  	// evenly spaced positions from start (x=50) to finishLine (14500)
-  	const x = 50 + (finishLine - 50) * (f / FURLONGS_TOTAL);
-
-  	ctx.save();
-  	ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-  	ctx.lineWidth = 2;
-  	ctx.setLineDash([6, 8]);
-  	ctx.beginPath();
-  	ctx.moveTo(x, laneOffset - laneGap / 2);
-  	ctx.lineTo(x, laneOffset - laneGap / 2 + 5 * laneGap);
-  	ctx.stroke();
-  	ctx.setLineDash([]);
-
-  	// small white post at the top rail
-  	ctx.fillStyle = '#fff';
-  	ctx.fillRect(x - 2, laneOffset - laneGap / 2 - 14, 4, 10);
-
-  	// label above
-  	ctx.font = 'bold 20px Arial';
-  	ctx.textAlign = 'center';
-  	ctx.textBaseline = 'top';
-  	ctx.fillStyle = 'blue';
-	ctx.fillText(`${FURLONGS_TOTAL - f + 1}f`, x, 5);
-  	ctx.restore();
-	}
 
       // finish line
       ctx.fillStyle = '#FF0000';
@@ -363,48 +326,7 @@ function drawName(yOffset){
         const staminaHold = Math.pow(h.stats.stamina, prog * 2.2);
         const tired       = 1 - h.stats.fatigue * Math.max(0, prog - 0.5);
         const jitter      = (Math.random() - 0.5) * h.stats.variance;
-	// original speed calc
-	let s = h.stats.baseSpeed * startBoost * staminaHold * tired + jitter;
-
-	// Kick power bursts (short surges; more likely late in the race)
-	if (h._kickCooldown == null) h._kickCooldown = 0;
-	if (h._kickTimer    == null) h._kickTimer    = 0;
-
-	h._kickCooldown -= dt;
-	h._kickTimer    = Math.max(0, h._kickTimer - dt);
-
-	// random small chance to trigger a burst, scaled by kick
-	if (h._kickCooldown <= 0 && Math.random() < 0.015 * h.stats.kick) {
-  	h._kickTimer    = 0.6 + 0.8 * h.stats.kick;       // burst duration
-  	h._kickCooldown = 2.0 + Math.random() * 2.0;      // wait before another burst
-	}
-
-	// guaranteed “late kick” once in the last ~18% if not already bursting
-	if (prog > 0.82 && h._kickTimer === 0) {
-  	h._kickTimer = 0.7 + 0.9 * h.stats.kick;
-	}
-
-	// convert active kick time to a speed multiplier
-	const kickBoost = h._kickTimer > 0
-  	? 1 + (0.20 + 0.80 * h.stats.kick) * (1 - prog * 0.3) // slightly stronger earlier in the kick
-  	: 1;
-
-	// apply kick
-	s *= kickBoost;
-
-	// finalBoost — one-time burst in last 10% of the race
-	if (!h._finalBoostUsed && prog > 0.9) {
- 		 s *= h.stats.finalBoost;          // apply burst multiplier
- 		 h._finalBoostUsed = true;         // ensure it triggers only once
-		}
-
-	// tiny tapering effect if already boosted
-	if (h._finalBoostUsed && prog > 0.9) {
- 		 s *= 1.0 - (prog - 0.9) * 0.3;    // fade a bit as it crosses the line
-		}
-	
-
-
+        const s = h.stats.baseSpeed * startBoost * staminaHold * tired + jitter;
 
         h.speed = Math.max(0.8, s);
         h.x += h.speed;
@@ -439,9 +361,6 @@ function drawName(yOffset){
       horses.forEach(h=>{
         h.x=50; h.speed=0; h.step=0; h.animTime=0;
         h.y = laneOffset + (h.lane-1)*laneGap;
-	h._kickTimer = 0;
-	h._kickCooldown = 0;
-	h._finalBoostUsed = false;
       });
       startBtn.disabled = false;
       resetBtn.disabled = true;

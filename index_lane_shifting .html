@@ -86,6 +86,7 @@
 
   <div id="winner"></div>
 
+
   <script>
     // ---------- YOUR SPRITE SETTINGS ----------
     const SPRITE_SRC_DEFAULT = "default.jpg";
@@ -93,14 +94,37 @@
     const SPRITE_SCALE_DEFAULT  = 1.0;
     // -----------------------------------------
 
+	// fixed 5-lane layout + passing/blocking params
+	const TOTAL_LANES = 1;
+	const LANE_PADDING = 16;
+	const BLOCK_DIST   = 90;
+	const BLOCK_SLOW   = 0.65;
+	const PASS_OFFSET  = 18;
+	const PASS_TIME    = 0.9;
+
+function autoFitLanes() {
+  totalLanes = TOTAL_LANES;
+  laneGap = (canvas.height - 2 * laneOffset) / totalLanes;
+  horses.forEach(h => {
+    const baseY = laneOffset + (h.lane - 0.5) * laneGap;
+    h.yBase = baseY;
+    h.yDrift = h.yDrift || 0;
+    h.passDir = h.passDir || 0;
+    h.passTimer = h.passTimer || 0;
+    h.y = baseY + h.yDrift;
+  });
+}
+
+
     // Canvas & world
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     canvas.width = 1200;  // Viewport width
-    canvas.height = 600;
+    canvas.height = 100;
     const worldWidth = 5000;  // Total track length
 
-    const laneGap = 100;
+    let laneGap = 50;      // will be recomputed to fit
+     let totalLanes = 1;     // will be updated from horses
     const laneOffset = 100;
     const finishLine = 4500;
 
@@ -120,18 +144,56 @@
     horseSprite.src = SPRITE_SRC_DEFAULT;
 
     // Horses with stats
-    const horses = [
-      { name:'Thunder',   lane:1, color:'#8B0000', x:50, y:laneOffset+0*laneGap, speed:0, step:0, animTime:0, sprite:null,
-        stats:{ baseSpeed:3.4, stamina:0.75, sprint:1.10, variance:0.25, fatigue:0.35, kick:0.80, finalBoost:1.2 } },
-      { name:'Lightning', lane:2, color:'#FFD700', x:50, y:laneOffset+1*laneGap, speed:0, step:0, animTime:0, sprite:null,
-        stats:{ baseSpeed:3.2, stamina:0.95, sprint:1.05, variance:0.18, fatigue:0.25, kick:0.55, finalBoost:1.5 } },
-      { name:'Storm',     lane:3, color:'#4169E1', x:50, y:laneOffset+2*laneGap, speed:0, step:0, animTime:0, sprite:null,
-        stats:{ baseSpeed:3.0, stamina:1.10, sprint:0.98, variance:0.15, fatigue:0.18, kick:0.45, finalBoost:1.0  } },
-      { name:'Blaze',     lane:4, color:'#FF4500', x:50, y:laneOffset+3*laneGap, speed:0, step:0, animTime:0, sprite:null,
-        stats:{ baseSpeed:3.6, stamina:0.70, sprint:1.15, variance:0.30, fatigue:0.40, kick:0.60, finalBoost:2  } },
-      { name:'Shadow',    lane:5, color:'#2F4F4F', x:50, y:laneOffset+4*laneGap, speed:0, step:0, animTime:0, sprite:null,
-        stats:{ baseSpeed:3.1, stamina:1.00, sprint:1.00, variance:0.20, fatigue:0.25, kick:0.90, finalBoost:0.5  } },
-    ];
+const horses = [
+  // your originals (unchanged)
+  { name:'Thunder',   lane:1, color:'#8B0000', x:50, y:laneOffset+0*laneGap, speed:0, step:0, animTime:0, sprite:null,
+    stats:{ baseSpeed:3.4, stamina:0.75, sprint:1.10, variance:0.25, fatigue:0.35, kick:0.80, finalBoost:1.2 } },
+  { name:'Lightning', lane:2, color:'#FFD700', x:50, y:laneOffset+1*laneGap, speed:0, step:0, animTime:0, sprite:null,
+    stats:{ baseSpeed:3.2, stamina:0.95, sprint:1.05, variance:0.18, fatigue:0.25, kick:0.55, finalBoost:1.5 } },
+  { name:'Storm',     lane:3, color:'#4169E1', x:50, y:laneOffset+2*laneGap, speed:0, step:0, animTime:0, sprite:null,
+    stats:{ baseSpeed:3.0, stamina:1.10, sprint:0.98, variance:0.15, fatigue:0.18, kick:0.45, finalBoost:1.0 } },
+  { name:'Blaze',     lane:4, color:'#FF4500', x:50, y:laneOffset+3*laneGap, speed:0, step:0, animTime:0, sprite:null,
+    stats:{ baseSpeed:3.6, stamina:0.70, sprint:1.15, variance:0.30, fatigue:0.40, kick:0.60, finalBoost:2.0 } },
+  { name:'Shadow',    lane:5, color:'#2F4F4F', x:50, y:laneOffset+4*laneGap, speed:0, step:0, animTime:0, sprite:null,
+    stats:{ baseSpeed:3.1, stamina:1.00, sprint:1.00, variance:0.20, fatigue:0.25, kick:0.90, finalBoost:0.5 } },
+
+  // new additions (lanes 6–19)
+  { name:'Comet',     lane:6,  color:'#32CD32', x:50, y:laneOffset+5*laneGap,  speed:0, step:0, animTime:0, sprite:null,
+    stats:{ baseSpeed:3.3, stamina:0.85, sprint:1.08, variance:0.22, fatigue:0.28, kick:0.70, finalBoost:1.3 } },
+  { name:'Raven',     lane:7,  color:'#9932CC', x:50, y:laneOffset+6*laneGap,  speed:0, step:0, animTime:0, sprite:null,
+    stats:{ baseSpeed:3.25, stamina:0.9, sprint:1.07, variance:0.2, fatigue:0.3, kick:0.65, finalBoost:1.4 } },
+  { name:'Meteor',    lane:8,  color:'#FF69B4', x:50, y:laneOffset+7*laneGap,  speed:0, step:0, animTime:0, sprite:null,
+    stats:{ baseSpeed:3.35, stamina:0.8, sprint:1.1, variance:0.25, fatigue:0.32, kick:0.6, finalBoost:1.2 } },
+  { name:'Bolt',      lane:9,  color:'#00CED1', x:50, y:laneOffset+8*laneGap,  speed:0, step:0, animTime:0, sprite:null,
+    stats:{ baseSpeed:3.45, stamina:0.7, sprint:1.12, variance:0.27, fatigue:0.35, kick:0.75, finalBoost:1.6 } },
+  { name:'Phantom',   lane:10, color:'#D2691E', x:50, y:laneOffset+9*laneGap,  speed:0, step:0, animTime:0, sprite:null,
+    stats:{ baseSpeed:3.2, stamina:0.95, sprint:1.04, variance:0.2, fatigue:0.3, kick:0.55, finalBoost:1.1 } },
+  { name:'Blizzard',  lane:11, color:'#E6E6FA', x:50, y:laneOffset+10*laneGap, speed:0, step:0, animTime:0, sprite:null,
+    stats:{ baseSpeed:3.15, stamina:1.05, sprint:1.0, variance:0.18, fatigue:0.22, kick:0.6, finalBoost:1.0 } },
+  { name:'Flash',     lane:12, color:'#DC143C', x:50, y:laneOffset+11*laneGap, speed:0, step:0, animTime:0, sprite:null,
+    stats:{ baseSpeed:3.55, stamina:0.65, sprint:1.15, variance:0.3, fatigue:0.38, kick:0.85, finalBoost:1.8 } },
+  { name:'Hurricane', lane:13, color:'#708090', x:50, y:laneOffset+12*laneGap, speed:0, step:0, animTime:0, sprite:null,
+    stats:{ baseSpeed:3.05, stamina:1.1, sprint:0.97, variance:0.15, fatigue:0.2, kick:0.4, finalBoost:1.0 } },
+  { name:'Inferno',   lane:14, color:'#FF6347', x:50, y:laneOffset+13*laneGap, speed:0, step:0, animTime:0, sprite:null,
+    stats:{ baseSpeed:3.5, stamina:0.7, sprint:1.13, variance:0.25, fatigue:0.36, kick:0.7, finalBoost:1.5 } },
+  { name:'Mirage',    lane:15, color:'#9ACD32', x:50, y:laneOffset+14*laneGap, speed:0, step:0, animTime:0, sprite:null,
+    stats:{ baseSpeed:3.3, stamina:0.85, sprint:1.06, variance:0.22, fatigue:0.27, kick:0.65, finalBoost:1.3 } },
+  { name:'Echo',      lane:16, color:'#8A2BE2', x:50, y:laneOffset+15*laneGap, speed:0, step:0, animTime:0, sprite:null,
+    stats:{ baseSpeed:3.25, stamina:0.9, sprint:1.05, variance:0.2, fatigue:0.3, kick:0.6, finalBoost:1.2 } },
+  { name:'Falcon',    lane:17, color:'#00FA9A', x:50, y:laneOffset+16*laneGap, speed:0, step:0, animTime:0, sprite:null,
+    stats:{ baseSpeed:3.4, stamina:0.8, sprint:1.09, variance:0.24, fatigue:0.32, kick:0.7, finalBoost:1.4 } },
+  { name:'Titan',     lane:18, color:'#FFDAB9', x:50, y:laneOffset+17*laneGap, speed:0, step:0, animTime:0, sprite:null,
+    stats:{ baseSpeed:3.1, stamina:1.0, sprint:1.02, variance:0.2, fatigue:0.25, kick:0.55, finalBoost:1.1 } },
+  { name:'Venom',     lane:19, color:'#FF8C00', x:50, y:laneOffset+18*laneGap, speed:0, step:0, animTime:0, sprite:null,
+    stats:{ baseSpeed:3.6, stamina:0.7, sprint:1.14, variance:0.3, fatigue:0.4, kick:0.8, finalBoost:1.7 } },
+];
+
+horses.forEach(h => { h.lane = 1; });   // force all to lane 1
+autoFitLanes();
+
+
+// Fit canvas height to lanes (+bottom padding)
+canvas.height = Math.max(600, laneOffset + laneGap * (horses.length + 1) + 100);
 
     // Build per-horse config panel
     const horseConfigEl = document.getElementById('horseConfig');
@@ -199,6 +261,7 @@
       return wrap;
     }
     horses.forEach(h => horseConfigEl.appendChild(makeHorseRow(h)));
+	autoFitLanes();
 
     // Frames/Scale UI
     const framesInput = document.getElementById('framesInput');
@@ -216,7 +279,7 @@
       ctx.strokeStyle = 'white';
       ctx.lineWidth = 2;
       ctx.setLineDash([10,5]);
-      for (let i=0; i<=5; i++) {
+      for (let i=0; i<=totalLanes; i++) {
         ctx.beginPath();
         ctx.moveTo(0, laneOffset - laneGap/2 + i*laneGap);
         ctx.lineTo(worldWidth, laneOffset - laneGap/2 + i*laneGap);
@@ -405,6 +468,47 @@ function drawName(yOffset){
 	
 
 
+	// --- simple blocking & overtake inside the same lane ---
+	let blockMultiplier = 1;
+
+	// find nearest horse AHEAD in same lane
+	let nearest = null, nearestDx = Infinity;
+	for (const o of horses) {
+  	if (o === h) continue;
+  	if (o.lane !== h.lane) continue;
+  	const dx = o.x - h.x;
+  	if (dx > 0 && dx < nearestDx) { nearest = o; nearestDx = dx; }
+	}
+
+	// if someone is close ahead, slow; optionally initiate pass
+	if (nearest && nearestDx < BLOCK_DIST) {
+ 	 // close vertically inside lane? (compare their drifts)
+  	const vClose = Math.abs((h.yDrift||0) - (nearest.yDrift||0)) < LANE_PADDING;
+  	if (vClose) {
+   	 blockMultiplier = BLOCK_SLOW;
+
+    	// start a pass if not already passing
+    	if (h.passTimer <= 0) {
+     	 // choose a direction that keeps us within lane bounds
+      	const upFree   = (h.yDrift - PASS_OFFSET) > -(laneGap/2 - LANE_PADDING);
+      	const downFree = (h.yDrift + PASS_OFFSET) <  (laneGap/2 - LANE_PADDING);
+      	h.passDir = (downFree && !upFree) ? +1 : (upFree && !downFree) ? -1 : (Math.random()<0.5?-1:+1);
+      	h.passTimer = PASS_TIME;
+    	}
+  	}
+	}
+
+	// animate side drift for pass / or return to center
+	const targetDrift = (h.passTimer > 0) ? h.passDir * PASS_OFFSET : 0;
+	h.yDrift += (targetDrift - h.yDrift) * Math.min(1, dt * 6); // ease
+	h.passTimer = Math.max(0, h.passTimer - dt);
+	// clamp inside lane
+	const maxDrift = (laneGap/2 - LANE_PADDING);
+	h.yDrift = Math.max(-maxDrift, Math.min(maxDrift, h.yDrift));
+	h.y = h.yBase + h.yDrift;
+	
+	// apply block effect to speed
+	s *= blockMultiplier;
 
         h.speed = Math.max(0.8, s);
         h.x += h.speed;
@@ -446,12 +550,14 @@ function drawName(yOffset){
       startBtn.disabled = false;
       resetBtn.disabled = true;
       document.getElementById('winner').style.display = 'none';
+  	autoFitLanes();          // <-- add here
       refreshLeaderboard();
     }
 
     function shuffleLanes() {
       const ids = [1,2,3,4,5].sort(()=>Math.random()-0.5);
       horses.forEach((h,i)=>{ h.lane = ids[i]; h.y = laneOffset + (h.lane-1)*laneGap; });
+  	autoFitLanes();          // <-- add here
       refreshLeaderboard();
     }
 
@@ -467,7 +573,7 @@ function drawName(yOffset){
       const allReady = horseSprite.complete || horses.some(h => h.sprite?.img?.complete);
       startBtn.disabled   = !allReady;
       resetBtn.disabled   = true;
-      shuffleBtn.disabled = !allReady;
+      shuffleBtn.disabled = true;
       loadStatus.textContent = allReady ? "Sprites loaded. Ready to race!" : "Loading sprites…";
     }
     horseSprite.onload = refreshButtonsIfLoaded;
