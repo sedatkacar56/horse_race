@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Horse Racing (Sprite Sheet)</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:Arial,Helvetica,sans-serif;background:linear-gradient(#87CEEB,#98D98E);overflow:hidden}
+    #gameCanvas{display:block;margin:20px auto;background:linear-gradient(#7CB342,#558B2F);border:5px solid #8B4513;box-shadow:0 10px 30px rgba(0,0,0,.3)}
+    #ui{
+      position:absolute;top:20px;left:20px;background:rgba(139,69,19,.92);
+      color:#fff;padding:14px;border-radius:10px;min-width:320px;max-width:380px;
+      max-height:80vh;overflow-y:auto;z-index:100
+    }
+    .row{display:flex;gap:8px;align-items:center;margin:6px 0}
+    .row label{min-width:64px;font-size:13px}
+    .row input[type="text"], .row input[type="number"]{
+      flex:1;border:none;border-radius:6px;padding:6px 8px;outline:none;font-size:13px
+    }
+    .row input[type="file"]{flex:1}
+    .tiny{font-size:12px;opacity:.9}
+    .horse-info{background:rgba(0,0,0,.25);padding:6px 8px;border-radius:6px;margin:8px 0}
+    #controls{
+      position:absolute;bottom:20px;left:50%;transform:translateX(-50%);
+      background:rgba(139,69,19,.92);color:#fff;border-radius:10px;padding:14px 16px;
+      display:flex;flex-wrap:wrap;gap:10px;justify-content:center;align-items:center
+    }
+    button{
+      background:#4CAF50;color:#fff;border:none;border-radius:6px;padding:10px 18px;
+      cursor:pointer;transition:.2s;font-size:15px
+    }
+    button:hover{background:#45a049;transform:scale(1.05)}
+    button:disabled{background:#666;transform:none;cursor:not-allowed}
+    #winner{
+      position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+      background:rgba(255,215,0,.96);padding:28px;border-radius:14px;font-weight:700;
+      color:#8B4513;display:none;text-align:center;font-size:22px;box-shadow:0 0 40px rgba(255,215,0,.8)
+    }
+    #loadStatus{margin-left:10px;font-size:13px}
+    #toggleUI{
+      position:absolute;top:20px;right:20px;background:#4CAF50;color:#fff;
+      border:none;border-radius:6px;padding:10px 18px;cursor:pointer;
+      transition:.2s;font-size:15px;z-index:101
+    }
+    #toggleUI:hover{background:#45a049}
+    .hidden{display:none!important}
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas"></canvas>
+
+  <button id="toggleUI">Hide Settings ⚙️</button>
+
+  <div id="ui" class="hidden">
+    <h3>🏇 Sprite Horse Racing</h3>
+
+    <div class="tiny" style="margin-bottom:8px">
+      This page auto-loads <b>default.jpg</b> (6 frames, one row). You can override any horse with your own PNG/JPG.
+    </div>
+
+    <div class="row">
+      <label>Frames</label>
+      <input id="framesInput" type="number" min="2" max="32" />
+    </div>
+    <div class="row">
+      <label>Scale</label>
+      <input id="scaleInput" type="number" min="0.2" max="4" step="0.1" />
+    </div>
+    <div class="tiny">Tip: If the horse looks too small/large, change <b>Scale</b>.</div>
+
+    <hr style="border:none;height:1px;background:rgba(255,255,255,.25);margin:10px 0">
+
+    <div id="horseConfig"></div>
+
+    <hr style="border:none;height:1px;background:rgba(255,255,255,.25);margin:10px 0">
+    <div id="leaderboard"></div>
+  </div>
+
+  <div id="controls">
+    <button id="startBtn" disabled>Start Race</button>
+    <button id="resetBtn" disabled>Reset Race</button>
+    <button id="shuffleBtn" disabled>Shuffle Lanes</button>
+    <span id="loadStatus" class="tiny">Loading sprites…</span>
+  </div>
+
+  <div id="winner"></div>
+  <script src="horses.js"></script>
+  <script>
+    // ---------- YOUR SPRITE SETTINGS ----------
+    const SPRITE_SRC_DEFAULT = "default.jpg";
+    const SPRITE_FRAMES_DEFAULT = 6;
+    const SPRITE_SCALE_DEFAULT  = 1.0;
+    // -----------------------------------------
+
+    // ===== world / camera =====
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width  = 5000;
+    canvas.height = 330;
+
+    const worldWidth = 15000;
+    const finishLine = 14500;
+
+    // ===== lanes (single-lane race) =====
+    const TOTAL_LANES  = 1;
+    let   totalLanes   = 1;
+    let   laneGap      = 200;
+    const laneOffset   = 70; // top rail y
+    const LANE_PADDING = 16;
+
+    // passing / blocking
+    const BLOCK_DIST  = 90;
+    const BLOCK_SLOW  = 0.65;
+    const PASS_OFFSET = 18;
+    const PASS_TIME   = 0.9;
+
+    // ===== turn/curve params (visual + physics) =====
+    const FURLONGS_TOTAL = 10;   // label marks
+    const TURN_RATIO   = 0.8;    // turn starts at 80% of the course
+    const TURN_LEN_PX  = 380;    // how long the visual bend is
+    const TURN_SLOW    = 0.92;   // mild slow in turn
+    const TURN_PULL    = 0.75;   // hug inside rail
+    const INSIDE_ADV   = 0.06;   // inside-rail small bonus
+    const BARRICADE_GAP = 18;
+
+    // curve shape (negative bends upward toward inside/top)
+    const CURVE_PIX    = -24;    // max curve offset
+    const TILT_MAX_RAD = 0.16;   // max lean
+
+    let TURN_X = 50 + (finishLine - 50) * TURN_RATIO;
+
+    // helper: how much the lane center is vertically offset at world X
+    function curveAtX(x) {
+      if (x < TURN_X || x > TURN_X + TURN_LEN_PX) return 0;
+      const t = (x - TURN_X) / TURN_LEN_PX;      // 0..1
+      return CURVE_PIX * Math.sin(t * Math.PI);  // smooth S-like arc
+    }
+
+    // ===== race state =====
+    let raceActive = false;
+    let raceFinished = false;
+    let cameraX = 0;
+    let manualPanUntil = 0; // ms timestamp until which we suppress auto-follow
+	let zoom = 1;
+	const MIN_ZOOM = 0.6;
+	const MAX_ZOOM = 1.4;
+
+    // ===== sprite config =====
+    const spriteConfig = { frames: SPRITE_FRAMES_DEFAULT, scale: SPRITE_SCALE_DEFAULT, fps: 14 };
+
+    // default sprite
+    const horseSprite = new Image();
+    horseSprite.src = SPRITE_SRC_DEFAULT;
+
+    // ===== horses (loaded from horses.js) =====
+// (Keep palette if you want a fallback color when one is missing)
+const palette = [
+  "#8B0000","#FFD700","#4169E1","#FF4500","#2F4F4F","#32CD32","#9932CC","#FF69B4",
+  "#00CED1","#D2691E","#E6E6FA","#DC143C","#708090","#FF6347","#9ACD32","#8A2BE2",
+  "#00FA9A","#FFDAB9","#FF8C00","#1E90FF","#A0522D","#ADFF2F","#00BFFF","#20B2AA"
+];
+
+if (!Array.isArray(window.HORSE_DATA) || HORSE_DATA.length === 0) {
+  throw new Error("HORSE_DATA is missing or empty. Make sure horses.js is loaded before this script.");
+}
+
+const horses = HORSE_DATA.map((h, i) => ({
+  name:  h.name,
+  color: h.color || palette[i % palette.length],
+  lane:  1,
+  x: 50 - i * 8,
+  y: 0,
+  speed: 0,
+  step: 0,
+  animTime: 0,
+  sprite: null,
+  stats: {
+    baseSpeed:  Number(h.baseSpeed),
+    stamina:    Number(h.stamina),
+    sprint:     Number(h.sprint),
+    variance:   Number(h.variance),
+    fatigue:    Number(h.fatigue),
+    kick:       Number(h.kick),
+    finalBoost: Number(h.finalBoost)
+  },
+  yDrift: (Math.random()*2 - 1) * 6
+}));
+
+
+
+    // arrange single-lane base positions
+    function autoFitLanes() {
+      totalLanes = TOTAL_LANES;
+      laneGap = Math.max(60, (canvas.height - 2 * laneOffset) / totalLanes);
+      horses.forEach((h, i) => {
+        h.lane = 1;                       // force single lane
+        h.yDrift = h.yDrift || 0;
+        h.passDir = h.passDir || 0;
+        h.passTimer = h.passTimer || 0;
+        const baseCurve = curveAtX(h.x);
+        h.yBase = laneOffset + (h.lane - 0.5) * laneGap + baseCurve;
+        h.y = h.yBase + h.yDrift;
+      });
+    }
+    autoFitLanes();
+
+    // ===== UI build-out for per-horse config =====
+    const horseConfigEl = document.getElementById('horseConfig');
+    function makeHorseRow(h) {
+      const wrap = document.createElement('div');
+      wrap.className = 'horse-info';
+      wrap.innerHTML = `
+        <div class="row">
+          <label>Lane ${h.lane}</label>
+          <input type="text" class="nm" value="${h.name}">
+          <input type="text" class="hex" value="${h.color}" title="Color (badge)">
+        </div>
+        <div class="row">
+          <label>Sprite</label>
+          <input type="file" class="file" accept="image/png,image/webp,image/jpeg">
+        </div>
+        <div class="row"><label>Base</label>
+          <input type="number" step="0.1" class="base" value="${h.stats.baseSpeed}">
+          <label>Stam</label>
+          <input type="number" step="0.05" class="stam" value="${h.stats.stamina}">
+        </div>
+        <div class="row"><label>Sprint</label>
+          <input type="number" step="0.05" class="sprint" value="${h.stats.sprint}">
+          <label>Var</label>
+          <input type="number" step="0.05" class="var" value="${h.stats.variance}">
+        </div>
+        <div class="row"><label>Fatigue</label>
+          <input type="number" step="0.05" class="fat" value="${h.stats.fatigue}">
+        </div>
+        <div class="row"><label>Kick</label>
+          <input type="number" step="0.05" min="0" max="1" class="kick" value="${h.stats.kick}">
+        </div>
+        <div class="row"><label>Final</label>
+          <input type="number" step="0.05" min="1" max="2" class="fboost" value="${h.stats.finalBoost}">
+        </div>`;
+      wrap.querySelector('.nm').oninput    = e => { h.name = e.target.value.trim() || h.name; refreshLeaderboard(); };
+      wrap.querySelector('.hex').oninput   = e => { h.color = e.target.value.trim() || h.color; refreshLeaderboard(); };
+      wrap.querySelector('.base').oninput  = e => h.stats.baseSpeed = +e.target.value || h.stats.baseSpeed;
+      wrap.querySelector('.stam').oninput  = e => h.stats.stamina   = +e.target.value || h.stats.stamina;
+      wrap.querySelector('.sprint').oninput= e => h.stats.sprint    = +e.target.value || h.stats.sprint;
+      wrap.querySelector('.var').oninput   = e => h.stats.variance  = +e.target.value || h.stats.variance;
+      wrap.querySelector('.fat').oninput   = e => h.stats.fatigue   = +e.target.value || h.stats.fatigue;
+      wrap.querySelector('.kick').oninput  = e => h.stats.kick      = +e.target.value || h.stats.kick;
+      wrap.querySelector('.fboost').oninput= e => h.stats.finalBoost= +e.target.value || h.stats.finalBoost;
+      wrap.querySelector('.file').onchange = e => {
+        const file = e.target.files[0]; if (!file) return;
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => { h.sprite = { img, url }; refreshButtonsIfLoaded(); };
+        img.src = url;
+      };
+      return wrap;
+    }
+    horses.forEach(h => horseConfigEl.appendChild(makeHorseRow(h)));
+
+    // frames/scale UI
+    const framesInput = document.getElementById('framesInput');
+    const scaleInput  = document.getElementById('scaleInput');
+    framesInput.value = SPRITE_FRAMES_DEFAULT;
+    scaleInput.value  = SPRITE_SCALE_DEFAULT;
+    framesInput.oninput = () => { spriteConfig.frames = Math.max(2, Math.min(32, +framesInput.value || SPRITE_FRAMES_DEFAULT)); };
+    scaleInput.oninput  = () => { spriteConfig.scale  = Math.max(0.2, Math.min(4, +scaleInput.value  || SPRITE_SCALE_DEFAULT)); };
+
+    // ===== track drawing (curved rails + barricades + furlongs) =====
+    function drawTrack() {
+      ctx.fillStyle = '#558B2F';
+      ctx.fillRect(0,0,worldWidth,canvas.height);
+
+      // furlong posts (decreasing labels)
+      for (let f = 1; f <= FURLONGS_TOTAL; f++) {
+        const x = 50 + (finishLine - 50) * (f / FURLONGS_TOTAL);
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+        ctx.setLineDash([6,8]);
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        // label
+        ctx.font = 'bold 18px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = 'red';
+        ctx.fillText(`${FURLONGS_TOTAL - f + 1}f`, x, 24);
+        ctx.restore();
+      }
+
+      // curved rails (top & bottom)
+      ctx.save();
+      ctx.strokeStyle = 'white';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([10,5]);
+      const STEP = 16;
+
+      // top rail
+      ctx.beginPath();
+      for (let x = 0; x <= worldWidth; x += STEP) {
+        const yTop = laneOffset + curveAtX(x);
+        if (x === 0) ctx.moveTo(x, yTop); else ctx.lineTo(x, yTop);
+      }
+      ctx.stroke();
+
+      // bottom rail
+      ctx.beginPath();
+      for (let x = 0; x <= worldWidth; x += STEP) {
+        const yBot = laneOffset + laneGap + curveAtX(x);
+        if (x === 0) ctx.moveTo(x, yBot); else ctx.lineTo(x, yBot);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+
+      // barricade posts along the curved section
+      for (let x = TURN_X; x < TURN_X + TURN_LEN_PX; x += BARRICADE_GAP) {
+        const yTop = laneOffset + curveAtX(x);
+        const yBot = laneOffset + laneGap + curveAtX(x);
+        const alt = ((Math.floor((x - TURN_X) / BARRICADE_GAP)) % 2) === 0;
+        const c1 = alt ? '#c00' : '#fff';
+        const c2 = alt ? '#fff' : '#c00';
+        // top posts
+        ctx.fillStyle = c1; ctx.fillRect(x - 3, yTop - 18, 6, 18);
+        ctx.fillStyle = c2; ctx.fillRect(x - 3, yTop - 34, 6, 14);
+        // bottom posts
+        ctx.fillStyle = c1; ctx.fillRect(x - 3, yBot, 6, 18);
+        ctx.fillStyle = c2; ctx.fillRect(x - 3, yBot + 18, 6, 14);
+      }
+
+      // finish line
+      ctx.fillStyle = '#FF0000';
+      ctx.fillRect(finishLine, 0, 5, canvas.height);
+      for (let i=0; i<canvas.height; i+=20) {
+        ctx.fillStyle = (i/20)%2===0 ? 'white' : 'black';
+        ctx.fillRect(finishLine+5, i, 15, 10);
+        ctx.fillRect(finishLine+20, i+10, 15, 10);
+      }
+    }
+
+    // ===== sprite drawing =====
+    function drawHorseSprite(horse, dt) {
+      const { frames, scale, fps } = spriteConfig;
+      const hasSprite = horse.sprite && horse.sprite.img && horse.sprite.img.complete;
+
+      function drawName(yOffset){
+        ctx.font = 'bold 14px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+        ctx.lineWidth = 4;
+        ctx.strokeText(horse.name, 0, yOffset);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(horse.name, 0, yOffset);
+      }
+
+      // if custom sprite not loaded but default is
+      if (!hasSprite && horseSprite.complete) {
+        const frameWidth  = horseSprite.width / SPRITE_FRAMES_DEFAULT;
+        const frameHeight = horseSprite.height;
+        const animFps = fps + horse.speed * 0.6;
+        horse.animTime = (horse.animTime || 0) + animFps * dt;
+        const frame = Math.floor(horse.animTime) % SPRITE_FRAMES_DEFAULT;
+        const drawW = frameWidth  * SPRITE_SCALE_DEFAULT;
+        const drawH = frameHeight * SPRITE_SCALE_DEFAULT;
+
+        // sprite (with lean)
+        ctx.save();
+        ctx.translate(horse.x, horse.y);
+        if (horse.tilt) ctx.rotate(horse.tilt);
+        ctx.drawImage(horseSprite, frame * frameWidth, 0, frameWidth, frameHeight,
+                      -drawW/2, -drawH/2, drawW, drawH);
+        ctx.restore();
+
+        // name (not rotated)
+        ctx.save();
+        ctx.translate(horse.x, horse.y);
+        drawName(-drawH * 0.65);
+        ctx.restore();
+        return;
+      }
+
+      if (!hasSprite) {
+        // simple placeholder
+        ctx.save();
+        ctx.translate(horse.x, horse.y);
+        ctx.fillStyle = horse.color;
+        ctx.beginPath(); ctx.arc(0,0,18,0,Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font='bold 14px Arial'; ctx.textAlign='center'; ctx.textBaseline='middle';
+        ctx.fillText('H', 0, 1);
+        drawName(-30);
+        ctx.restore();
+        return;
+      }
+
+      // custom sprite
+      const img = horse.sprite.img;
+      const frameW = Math.floor(img.width / frames);
+      const frameH = img.height;
+      const animFps = fps + horse.speed * 0.6;
+      horse.animTime = (horse.animTime || 0) + animFps * dt;
+      const frameIndex = Math.floor(horse.animTime) % frames;
+      const drawW = frameW * scale;
+      const drawH = frameH * scale;
+
+      // sprite (leaned)
+      ctx.save();
+      ctx.translate(horse.x, horse.y);
+      if (horse.tilt) ctx.rotate(horse.tilt);
+      ctx.drawImage(img, frameIndex * frameW, 0, frameW, frameH,
+                    -drawW*0.5, -drawH*0.5, drawW, drawH);
+      ctx.restore();
+
+      // name (upright)
+      ctx.save();
+      ctx.translate(horse.x, horse.y);
+      drawName(-drawH * 0.65);
+      ctx.restore();
+    }
+
+    // ===== leaderboard =====
+    const leaderboard = document.getElementById('leaderboard');
+    function refreshLeaderboard() {
+      const sorted = [...horses].sort((a,b) => b.x - a.x);
+      leaderboard.innerHTML = sorted.map((h,i) => {
+        const pct = Math.max(0, Math.round((h.x / finishLine) * 100));
+        return `<div class="horse-info">${i+1}. <b>${h.name}</b> — <span style="color:${h.color}">●</span> ${pct}%</div>`;
+      }).join('');
+    }
+
+    // ===== physics =====
+    function updateHorses(dt) {
+      if (!raceActive || raceFinished) return;
+
+      horses.forEach(h => {
+        const prog = Math.min(1, (h.x - 50) / (finishLine - 50));
+        const startBoost  = 1 + (h.stats.sprint - 1) * Math.exp(-prog * 6);
+        const staminaHold = Math.pow(h.stats.stamina, prog * 2.2);
+        const tired       = 1 - h.stats.fatigue * Math.max(0, prog - 0.5);
+        const jitter      = (Math.random() - 0.5) * h.stats.variance;
+        let s = h.stats.baseSpeed * startBoost * staminaHold * tired + jitter;
+
+        // kick bursts
+        if (h._kickCooldown == null) h._kickCooldown = 0;
+        if (h._kickTimer    == null) h._kickTimer    = 0;
+        h._kickCooldown -= dt;
+        h._kickTimer     = Math.max(0, h._kickTimer - dt);
+        if (h._kickCooldown <= 0 && Math.random() < 0.015 * h.stats.kick) {
+          h._kickTimer    = 0.6 + 0.8 * h.stats.kick;
+          h._kickCooldown = 2.0 + Math.random() * 2.0;
+        }
+        if (prog > 0.82 && h._kickTimer === 0) {
+          h._kickTimer = 0.7 + 0.9 * h.stats.kick;
+        }
+        const kickBoost = h._kickTimer > 0 ? 1 + (0.20 + 0.80 * h.stats.kick) * (1 - prog * 0.3) : 1;
+        s *= kickBoost;
+
+        // final burst once in last 10%
+        if (!h._finalBoostUsed && prog > 0.9) { s *= h.stats.finalBoost; h._finalBoostUsed = true; }
+        if (h._finalBoostUsed && prog > 0.9)  { s *= 1.0 - (prog - 0.9) * 0.3; }
+
+        // simple blocking & overtake (same lane)
+        let blockMultiplier = 1;
+        let nearest = null, nearestDx = Infinity;
+        for (const o of horses) {
+          if (o === h) continue;
+          const dx = o.x - h.x;
+          if (dx > 0 && dx < nearestDx) { nearest = o; nearestDx = dx; }
+        }
+        if (nearest && nearestDx < BLOCK_DIST) {
+          const vClose = Math.abs((h.yDrift||0) - (nearest.yDrift||0)) < LANE_PADDING;
+          if (vClose) {
+            blockMultiplier = BLOCK_SLOW;
+            if (h.passTimer <= 0) {
+              const upFree   = (h.yDrift - PASS_OFFSET) > -(laneGap/2 - LANE_PADDING);
+              const downFree = (h.yDrift + PASS_OFFSET) <  (laneGap/2 - LANE_PADDING);
+              h.passDir   = (downFree && !upFree) ? +1 : (upFree && !downFree) ? -1 : (Math.random()<0.5?-1:+1);
+              h.passTimer = PASS_TIME;
+            }
+          }
+        }
+
+        // drift easing
+        const targetDrift = (h.passTimer > 0) ? h.passDir * PASS_OFFSET : 0;
+        h.yDrift += (targetDrift - h.yDrift) * Math.min(1, dt * 6);
+        h.passTimer = Math.max(0, h.passTimer - dt);
+
+        // clamp inside lane
+        const maxDrift = (laneGap/2 - LANE_PADDING);
+        h.yDrift = Math.max(-maxDrift, Math.min(maxDrift, h.yDrift));
+
+        // follow the lane curve at current x
+        const baseCurve = curveAtX(h.x);
+        h.yBase = laneOffset + (h.lane - 0.5) * laneGap + baseCurve;
+        h.y = h.yBase + h.yDrift;
+
+        // apply block
+        s *= blockMultiplier;
+
+        // turn behavior inside curved span
+        if (h.x > TURN_X && h.x < TURN_X + TURN_LEN_PX) {
+          s *= TURN_SLOW;
+          const innerRail = -(laneGap/2 - LANE_PADDING - 4);
+          const targetDriftOnTurn = innerRail * TURN_PULL;
+          const accel = 4 + 3 * h.stats.kick;
+          h.yDrift += (targetDriftOnTurn - h.yDrift) * Math.min(1, dt * accel);
+
+          const insideFrac = Math.max(0, (-h.yDrift) / (laneGap/2)); // 0..1
+          s *= 1 + INSIDE_ADV * insideFrac;
+
+          const t = (h.x - TURN_X) / TURN_LEN_PX;
+          const targetTilt = -TILT_MAX_RAD * Math.sin(t * Math.PI);
+          h.tilt = (h.tilt || 0) + (targetTilt - (h.tilt || 0)) * Math.min(1, dt * 6);
+        } else {
+          h.tilt = (h.tilt || 0) * Math.max(0, 1 - dt * 6);
+        }
+
+        // integrate
+        h.speed = Math.max(0.8, s);
+        h.x += h.speed;
+        h.step += h.speed * 0.08;
+
+        if (h.x >= finishLine && !raceFinished) {
+          raceFinished = true; raceActive = false; showWinner(h);
+        }
+      });
+
+      refreshLeaderboard();
+    }
+
+    // ===== race control =====
+    const startBtn   = document.getElementById('startBtn');
+    const resetBtn   = document.getElementById('resetBtn');
+    const shuffleBtn = document.getElementById('shuffleBtn');
+    const loadStatus = document.getElementById('loadStatus');
+
+    function startRace() {
+      if (raceActive) return;
+      raceActive = true; raceFinished = false;
+      startBtn.disabled = true;
+      resetBtn.disabled = true;
+      document.getElementById('winner').style.display = 'none';
+      lastTs = performance.now();
+    }
+
+    function resetRace() {
+      raceActive = false; raceFinished = false;
+      cameraX = 0;
+      horses.forEach(h=>{
+        h.x=50; h.speed=0; h.step=0; h.animTime=0;
+        h._kickTimer=0; h._kickCooldown=0; h._finalBoostUsed=false; h.tilt=0;
+        h.yDrift=0; h.passTimer=0; h.passDir=0;
+      });
+      autoFitLanes();
+      startBtn.disabled = false;
+      resetBtn.disabled = true;
+      document.getElementById('winner').style.display = 'none';
+      refreshLeaderboard();
+    }
+
+    // shuffle is irrelevant with 1 lane; keep button disabled
+    shuffleBtn.disabled = true;
+
+    function showWinner(horse) {
+      const el = document.getElementById('winner');
+      el.innerHTML = `🏆 ${horse.name} WINS! 🏆<br/><br/>Nice ride on the bend!`;
+      el.style.display = 'block';
+      resetBtn.disabled = false;
+      startBtn.disabled = true;
+    }
+
+    function refreshButtonsIfLoaded() {
+      const allReady = horseSprite.complete || horses.some(h => h.sprite?.img?.complete);
+      startBtn.disabled   = !allReady;
+      resetBtn.disabled   = true;
+      loadStatus.textContent = allReady ? "Sprites loaded. Ready to race!" : "Loading sprites…";
+    }
+    horseSprite.onload = refreshButtonsIfLoaded;
+
+    // ===== loop =====
+    let lastTs = performance.now();
+    function loop(ts) {
+      const dt = Math.min(0.05, (ts - lastTs) / 1000);
+      lastTs = ts;
+
+const now = performance.now();
+if ((raceActive || raceFinished) && now > manualPanUntil) {
+  const viewW = canvas.width / zoom; // visible width in world pixels
+  const leader = Math.max(...horses.map(h => h.x));
+  const bias = 0.48; // keep leader roughly near center
+
+  // Lock so finish line is guaranteed visible in the last stretch
+  let targetCameraX = (leader >= finishLine - viewW * 0.5)
+    ? (finishLine - viewW * 0.5)
+    : (leader - viewW * bias);
+
+  // clamp using viewW
+  targetCameraX = Math.max(0, Math.min(worldWidth - viewW, targetCameraX));
+
+  cameraX += (targetCameraX - cameraX) * 0.18;
+}
+
+
+	ctx.save();
+	// Apply zoom + camera in one go
+	ctx.setTransform(zoom, 0, 0, zoom, -cameraX * zoom, 0);
+
+	drawTrack();
+	horses.slice().sort((a,b)=>a.y-b.y).forEach(h => drawHorseSprite(h, dt));
+
+	ctx.restore();
+
+      updateHorses(dt);
+      requestAnimationFrame(loop);
+    }
+
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const oldZoom = zoom;
+  const factor = e.deltaY < 0 ? 1.1 : 0.9;
+
+  // current view width before zoom (world units)
+  const oldViewW = canvas.width / oldZoom;
+
+  // Zoom
+  zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom * factor));
+
+  // new view width after zoom
+  const newViewW = canvas.width / zoom;
+
+  // Keep the same world center while zooming
+  const centerWorld = cameraX + oldViewW * 0.5;
+  cameraX = centerWorld - newViewW * 0.5;
+
+  // Clamp with viewW
+  cameraX = Math.max(0, Math.min(worldWidth - newViewW, cameraX));
+
+  // Pause auto-follow briefly so zoom doesn’t get overridden
+  manualPanUntil = performance.now() + 800;
+}, { passive: false });
+
+
+
+
+    // buttons
+    startBtn.onclick = startRace;
+    resetBtn.onclick = resetRace;
+
+    // toggle UI
+    const toggleUIBtn = document.getElementById('toggleUI');
+    const uiPanel = document.getElementById('ui');
+    toggleUIBtn.onclick = () => {
+      uiPanel.classList.toggle('hidden');
+      toggleUIBtn.textContent = uiPanel.classList.contains('hidden') ? 'Show Settings ⚙️' : 'Hide Settings ⚙️';
+    };
+
+    // init
+refreshLeaderboard();
+refreshButtonsIfLoaded();
+requestAnimationFrame(loop);
+
+// 🧭 Add keyboard panning here
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+    e.preventDefault();
+    const viewW = canvas.width / zoom;
+    const step = 120 / zoom; // pan feels consistent at any zoom
+
+    if (e.key === 'ArrowRight') {
+      cameraX = Math.min(worldWidth - viewW, cameraX + step);
+    } else {
+      cameraX = Math.max(0, cameraX - step);
+    }
+
+    manualPanUntil = performance.now() + 800;
+  }
+}, { capture: true, passive: false });
+
+</script>
+</body>
+</html>
+
