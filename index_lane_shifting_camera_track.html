@@ -96,16 +96,16 @@
     // ===== world / camera =====
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
-    canvas.width  = 5000;
+    canvas.width  = 2000;
     canvas.height = 330;
 
-    const worldWidth = 15000;
-    const finishLine = 14500;
+    const worldWidth = 7000;
+    const finishLine = 6500;
 
     // ===== lanes (single-lane race) =====
-    const TOTAL_LANES  = 1;
-    let   totalLanes   = 1;
-    let   laneGap      = 200;
+    const TOTAL_LANES  = HORSE_DATA.length;
+    let   totalLanes   = HORSE_DATA.length;
+    let   laneGap      = 10;
     const laneOffset   = 70; // top rail y
     const LANE_PADDING = 16;
 
@@ -113,7 +113,7 @@
     const BLOCK_DIST  = 90;
     const BLOCK_SLOW  = 0.65;
     const PASS_OFFSET = 18;
-    const PASS_TIME   = 0.9;
+    const PASS_TIME   = 2;
 
     // ===== turn/curve params (visual + physics) =====
     const FURLONGS_TOTAL = 10;   // label marks
@@ -168,9 +168,9 @@ if (!Array.isArray(window.HORSE_DATA) || HORSE_DATA.length === 0) {
 const horses = HORSE_DATA.map((h, i) => ({
   name:  h.name,
   color: h.color || palette[i % palette.length],
-  lane:  1,
+  lane:  i + 1,
   x: 50 - i * 8,
-  y: 0,
+  y: laneOffset + laneGap,
   speed: 0,
   step: 0,
   animTime: 0,
@@ -337,8 +337,7 @@ const horses = HORSE_DATA.map((h, i) => ({
       for (let i=0; i<canvas.height; i+=20) {
         ctx.fillStyle = (i/20)%2===0 ? 'white' : 'black';
         ctx.fillRect(finishLine+5, i, 15, 10);
-        ctx.fillRect(finishLine+20, i+10, 15, 10);
-      }
+       }
     }
 
     // ===== sprite drawing =====

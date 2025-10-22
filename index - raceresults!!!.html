@@ -35,8 +35,20 @@
     #winner{
       position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
       background:rgba(255,215,0,.96);padding:28px;border-radius:14px;font-weight:700;
-      color:#8B4513;display:none;text-align:center;font-size:22px;box-shadow:0 0 40px rgba(255,215,0,.8)
+      color:#8B4513;display:none;text-align:center;font-size:22px;box-shadow:0 0 40px rgba(255,215,0,.8);
+      max-height:70vh;overflow-y:auto;max-width:500px
     }
+    #raceResults{
+      position:absolute;top:100px;right:20px;background:rgba(139,69,19,.95);
+      color:#fff;padding:16px;border-radius:10px;min-width:280px;
+      display:none;z-index:100;box-shadow:0 5px 20px rgba(0,0,0,.4)
+    }
+    .result-item{
+      padding:8px;margin:6px 0;background:rgba(0,0,0,.3);border-radius:6px;
+      display:flex;align-items:center;gap:10px;font-size:15px
+    }
+    .result-position{font-weight:bold;font-size:20px;min-width:35px;text-align:center}
+    .result-medal{font-size:24px}
     #loadStatus{margin-left:10px;font-size:13px}
     #toggleUI{
       position:absolute;top:20px;right:20px;background:#4CAF50;color:#fff;
@@ -85,28 +97,33 @@
   </div>
 
   <div id="winner"></div>
+  <div id="raceResults"></div>
+
+  <!-- Your horse stats -->
+  <script src="horses.js"></script>
 
   <script>
-    // ---------- YOUR SPRITE SETTINGS ----------
+    /* ---------- SPRITE SETTINGS ---------- */
     const SPRITE_SRC_DEFAULT = "default.jpg";
     const SPRITE_FRAMES_DEFAULT = 6;
     const SPRITE_SCALE_DEFAULT  = 1.0;
-    // -----------------------------------------
+    /* ------------------------------------ */
 
     // Canvas & world
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
-    canvas.width = 1200;  // Viewport width
+    canvas.width = 1200;
     canvas.height = 600;
-    const worldWidth = 5000;  // Total track length
+    const worldWidth = 5000;
 
     const laneGap = 10;
-    const laneOffset = 100;
+    const laneOffset = 120;
     const finishLine = 4500;
 
     let raceActive = false;
     let raceFinished = false;
     let cameraX = 0;
+    let finishOrder = [];
 
     // Shared sprite config
     const spriteConfig = {
@@ -119,19 +136,39 @@
     const horseSprite = new Image();
     horseSprite.src = SPRITE_SRC_DEFAULT;
 
-    // Horses with stats
-    const horses = [
-      { name:'Thunder',   lane:1, color:'#8B0000', x:50, y:laneOffset+0*laneGap, speed:0, step:0, animTime:0, sprite:null,
-        stats:{ baseSpeed:3.4, stamina:0.75, sprint:1.10, variance:0.25, fatigue:0.35, kick:0.80, finalBoost:1.2 } },
-      { name:'Lightning', lane:2, color:'#FFD700', x:50, y:laneOffset+1*laneGap, speed:0, step:0, animTime:0, sprite:null,
-        stats:{ baseSpeed:3.2, stamina:0.95, sprint:1.05, variance:0.18, fatigue:0.25, kick:0.55, finalBoost:1.5 } },
-      { name:'Storm',     lane:3, color:'#4169E1', x:50, y:laneOffset+2*laneGap, speed:0, step:0, animTime:0, sprite:null,
-        stats:{ baseSpeed:3.0, stamina:1.10, sprint:0.98, variance:0.15, fatigue:0.18, kick:0.45, finalBoost:1.0  } },
-      { name:'Blaze',     lane:4, color:'#FF4500', x:50, y:laneOffset+3*laneGap, speed:0, step:0, animTime:0, sprite:null,
-        stats:{ baseSpeed:3.6, stamina:0.70, sprint:1.15, variance:0.30, fatigue:0.40, kick:0.60, finalBoost:2  } },
-      { name:'Shadow',    lane:5, color:'#2F4F4F', x:50, y:laneOffset+4*laneGap, speed:0, step:0, animTime:0, sprite:null,
-        stats:{ baseSpeed:3.1, stamina:1.00, sprint:1.00, variance:0.20, fatigue:0.25, kick:0.90, finalBoost:0.5  } },
+    // Fallback colors
+    const palette = [
+      "#8B0000","#FFD700","#4169E1","#FF4500","#2F4F4F","#32CD32","#9932CC","#FF69B4",
+      "#00CED1","#D2691E","#E6E6FA","#DC143C","#708090","#FF6347","#9ACD32","#8A2BE2",
+      "#00FA9A","#FFDAB9","#FF8C00","#1E90FF","#A0522D","#ADFF2F","#00BFFF","#20B2AA"
     ];
+
+    if (!Array.isArray(window.HORSE_DATA) || HORSE_DATA.length === 0) {
+      throw new Error("HORSE_DATA is missing or empty. Make sure horses.js is loaded before this script.");
+    }
+
+    const horses = HORSE_DATA.map((h, i) => ({
+      name:  h.name,
+      color: h.color || palette[i % palette.length],
+      lane:  i + 1,
+      x: 50,
+      y: laneOffset + i * laneGap,
+      speed: 0,
+      step: 0,
+      animTime: 0,
+      sprite: null,
+      finished: false,
+      finishTime: null,
+      stats: {
+        baseSpeed:  Number(h.baseSpeed),
+        stamina:    Number(h.stamina),
+        sprint:     Number(h.sprint),
+        variance:   Number(h.variance),
+        fatigue:    Number(h.fatigue),
+        kick:       Number(h.kick),
+        finalBoost: Number(h.finalBoost)
+      }
+    }));
 
     // Build per-horse config panel
     const horseConfigEl = document.getElementById('horseConfig');
@@ -151,7 +188,6 @@
         </div>
       `;
 
-      // Stats UI
       const statsHtml = document.createElement('div');
       statsHtml.innerHTML = `
         <div class="row"><label>Base</label>
@@ -167,12 +203,12 @@
         <div class="row"><label>Fatigue</label>
           <input type="number" step="0.05" class="fat" value="${h.stats.fatigue}">
         </div>
-	<div class="row"><label>Kick</label>
-  	<input type="number" step="0.05" min="0" max="1" class="kick" value="${h.stats.kick}">
-	</div>
-	<div class="row"><label>Final</label>
-  	<input type="number" step="0.05" min="1" max="2" class="fboost" value="${h.stats.finalBoost}">
-	</div>
+        <div class="row"><label>Kick</label>
+          <input type="number" step="0.05" min="0" max="1" class="kick" value="${h.stats.kick}">
+        </div>
+        <div class="row"><label>Final</label>
+          <input type="number" step="0.05" min="1" max="2" class="fboost" value="${h.stats.finalBoost}">
+        </div>
       `;
       wrap.appendChild(statsHtml);
 
@@ -184,8 +220,8 @@
       statsHtml.querySelector('.sprint').oninput = e => h.stats.sprint    = +e.target.value || h.stats.sprint;
       statsHtml.querySelector('.var').oninput    = e => h.stats.variance  = +e.target.value || h.stats.variance;
       statsHtml.querySelector('.fat').oninput    = e => h.stats.fatigue   = +e.target.value || h.stats.fatigue;
-      statsHtml.querySelector('.kick').oninput = e => h.stats.kick = +e.target.value || h.stats.kick;
-      statsHtml.querySelector('.fboost').oninput = e => h.stats.finalBoost = +e.target.value || h.stats.finalBoost;
+      statsHtml.querySelector('.kick').oninput   = e => h.stats.kick      = +e.target.value || h.stats.kick;
+      statsHtml.querySelector('.fboost').oninput = e => h.stats.finalBoost= +e.target.value || h.stats.finalBoost;
 
       wrap.querySelector('.file').onchange = e => {
         const file = e.target.files[0];
@@ -216,7 +252,7 @@
       ctx.strokeStyle = 'white';
       ctx.lineWidth = 2;
       ctx.setLineDash([10,5]);
-      for (let i=0; i<=5; i++) {
+      for (let i=0; i<=horses.length; i++) {
         ctx.beginPath();
         ctx.moveTo(0, laneOffset - laneGap/2 + i*laneGap);
         ctx.lineTo(worldWidth, laneOffset - laneGap/2 + i*laneGap);
@@ -224,36 +260,30 @@
       }
       ctx.setLineDash([]);
 
-	// Furlong markers across the track
-	const FURLONGS_TOTAL = 8; // adjust if you want more markers
-	for (let f = 1; f <= FURLONGS_TOTAL; f++) {
-  	// evenly spaced positions from start (x=50) to finishLine (14500)
-  	const x = 50 + (finishLine - 50) * (f / FURLONGS_TOTAL);
+      // Furlong markers
+      const FURLONGS_TOTAL = 8;
+      for (let f = 1; f <= FURLONGS_TOTAL; f++) {
+        const x = 50 + (finishLine - 50) * (f / FURLONGS_TOTAL);
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 8]);
+        ctx.beginPath();
+        ctx.moveTo(x, laneOffset - laneGap / 2);
+        ctx.lineTo(x, laneOffset - laneGap / 2 + horses.length * laneGap);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(x - 2, laneOffset - laneGap / 2 - 14, 4, 10);
+        ctx.font = 'bold 20px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillStyle = 'blue';
+        ctx.fillText(`${FURLONGS_TOTAL - f + 1}f`, x, 5);
+        ctx.restore();
+      }
 
-  	ctx.save();
-  	ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-  	ctx.lineWidth = 2;
-  	ctx.setLineDash([6, 8]);
-  	ctx.beginPath();
-  	ctx.moveTo(x, laneOffset - laneGap / 2);
-  	ctx.lineTo(x, laneOffset - laneGap / 2 + 5 * laneGap);
-  	ctx.stroke();
-  	ctx.setLineDash([]);
-
-  	// small white post at the top rail
-  	ctx.fillStyle = '#fff';
-  	ctx.fillRect(x - 2, laneOffset - laneGap / 2 - 14, 4, 10);
-
-  	// label above
-  	ctx.font = 'bold 20px Arial';
-  	ctx.textAlign = 'center';
-  	ctx.textBaseline = 'top';
-  	ctx.fillStyle = 'blue';
-	ctx.fillText(`${FURLONGS_TOTAL - f + 1}f`, x, 5);
-  	ctx.restore();
-	}
-
-      // finish line
+      // Finish line
       ctx.fillStyle = '#FF0000';
       ctx.fillRect(finishLine, 0, 5, canvas.height);
       for (let i=0; i<canvas.height; i+=20) {
@@ -267,47 +297,40 @@
     function drawHorseSprite(horse, dt) {
       const { frames, scale, fps } = spriteConfig;
       const hasSprite = horse.sprite && horse.sprite.img && horse.sprite.img.complete;
-	
-function drawName(yOffset){
-  ctx.font = 'bold 14px Arial';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'bottom';
-  ctx.strokeStyle = 'rgba(0,0,0,0.6)';
-  ctx.lineWidth = 4;
-  ctx.strokeText(horse.name, 0, yOffset);
-  ctx.fillStyle = '#fff';
-  ctx.fillText(horse.name, 0, yOffset);
-}
 
+      function drawName(yOffset){
+        ctx.font = 'bold 14px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+        ctx.lineWidth = 4;
+        ctx.strokeText(horse.name, 0, yOffset);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(horse.name, 0, yOffset);
+      }
 
-
-
+      // Use default sprite if present
       if (!hasSprite && horseSprite.complete) {
         ctx.save();
         ctx.translate(horse.x, horse.y);
-
         const animFps = fps + horse.speed * 0.6;
         horse.animTime = (horse.animTime || 0) + animFps * dt;
-
         const frameWidth  = horseSprite.width / SPRITE_FRAMES_DEFAULT;
         const frameHeight = horseSprite.height;
         const frame       = Math.floor(horse.animTime) % SPRITE_FRAMES_DEFAULT;
-
         const drawWidth  = frameWidth  * SPRITE_SCALE_DEFAULT;
         const drawHeight = frameHeight * SPRITE_SCALE_DEFAULT;
-
         ctx.drawImage(
           horseSprite,
           frame * frameWidth, 0, frameWidth, frameHeight,
           -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight
         );
-	drawName(-drawHeight * 0.6); // name above the sprite
-
-
+        drawName(-drawHeight * 0.6);
         ctx.restore();
         return;
       }
 
+      // Fallback circle
       if (!hasSprite) {
         ctx.save();
         ctx.translate(horse.x, horse.y);
@@ -315,19 +338,18 @@ function drawName(yOffset){
         ctx.beginPath(); ctx.arc(0,0,18,0,Math.PI*2); ctx.fill();
         ctx.fillStyle = '#fff'; ctx.font='bold 14px Arial'; ctx.textAlign='center'; ctx.textBaseline='middle';
         ctx.fillText(horse.lane, 0, 0);
-	drawName(-30);
+        drawName(-30);
         ctx.restore();
         return;
       }
 
+      // Custom sprite
       const img = horse.sprite.img;
       const frameW = Math.floor(img.width / frames);
       const frameH = img.height;
-
       const animFps = fps + horse.speed * 0.6;
       horse.animTime = (horse.animTime || 0) + animFps * dt;
       const frameIndex = Math.floor(horse.animTime) % frames;
-
       const drawW = frameW * scale;
       const drawH = frameH * scale;
 
@@ -338,13 +360,14 @@ function drawName(yOffset){
         frameIndex * frameW, 0, frameW, frameH,
         -drawW*0.5, -drawH*0.5, drawW, drawH
       );
-
-     drawName(-drawH * 0.6);
+      drawName(-drawH * 0.6);
       ctx.restore();
     }
 
-    // Leaderboard
+    // Leaderboard & results
     const leaderboard = document.getElementById('leaderboard');
+    const raceResults = document.getElementById('raceResults');
+
     function refreshLeaderboard() {
       const sorted = [...horses].sort((a,b) => b.x - a.x);
       leaderboard.innerHTML = sorted.map((h,i) => {
@@ -353,9 +376,52 @@ function drawName(yOffset){
       }).join('');
     }
 
-    // Physics
+    function updateRaceResults() {
+      if (!raceActive && finishOrder.length === 0) {
+        raceResults.style.display = 'none';
+        return;
+      }
+      raceResults.style.display = 'block';
+      let html = '<h3 style="margin:0 0 10px 0; font-size:18px;">📊 Race Results</h3>';
+
+      if (finishOrder.length > 0) {
+        finishOrder.forEach((h, i) => {
+          const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '';
+          html += `<div class="result-item">
+            <span class="result-position">${i+1}${getOrdinalSuffix(i+1)}</span>
+            ${medal ? `<span class="result-medal">${medal}</span>` : ''}
+            <span style="color:${h.color};font-size:20px">●</span>
+            <span style="flex:1"><b>${h.name}</b><br/><small>Lane ${h.lane}</small></span>
+          </div>`;
+        });
+      }
+
+      const stillRacing = horses.filter(h => !h.finished);
+      if (stillRacing.length > 0) {
+        html += '<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.3)">';
+        html += '<div style="font-size:13px;opacity:0.8;margin-bottom:6px">Still Racing:</div>';
+        stillRacing.forEach(h => {
+          const pct = Math.max(0, Math.min(100, Math.round((h.x / finishLine) * 100)));
+          html += `<div style="padding:4px;margin:3px 0;font-size:13px">
+            <span style="color:${h.color}">●</span> ${h.name} - ${pct}%
+          </div>`;
+        });
+        html += '</div>';
+      }
+      raceResults.innerHTML = html;
+    }
+
+    function getOrdinalSuffix(num) {
+      const j = num % 10, k = num % 100;
+      if (j === 1 && k !== 11) return 'st';
+      if (j === 2 && k !== 12) return 'nd';
+      if (j === 3 && k !== 13) return 'rd';
+      return 'th';
+    }
+
+    // Physics (updated)
     function updateHorses(dt) {
-      if (!raceActive || raceFinished) return;
+      if (!raceActive) return;
 
       horses.forEach(h => {
         const prog = Math.min(1, (h.x - 50) / (finishLine - 50));
@@ -363,59 +429,68 @@ function drawName(yOffset){
         const staminaHold = Math.pow(h.stats.stamina, prog * 2.2);
         const tired       = 1 - h.stats.fatigue * Math.max(0, prog - 0.5);
         const jitter      = (Math.random() - 0.5) * h.stats.variance;
-	// original speed calc
-	let s = h.stats.baseSpeed * startBoost * staminaHold * tired + jitter;
+        let s = h.stats.baseSpeed * startBoost * staminaHold * tired + jitter;
 
-	// Kick power bursts (short surges; more likely late in the race)
-	if (h._kickCooldown == null) h._kickCooldown = 0;
-	if (h._kickTimer    == null) h._kickTimer    = 0;
+        // Kick bursts
+        if (h._kickCooldown == null) h._kickCooldown = 0;
+        if (h._kickTimer    == null) h._kickTimer    = 0;
+        h._kickCooldown -= dt;
+        h._kickTimer     = Math.max(0, h._kickTimer - dt);
 
-	h._kickCooldown -= dt;
-	h._kickTimer    = Math.max(0, h._kickTimer - dt);
+        if (h._kickCooldown <= 0 && Math.random() < 0.015 * h.stats.kick) {
+          h._kickTimer    = 0.6 + 0.8 * h.stats.kick;
+          h._kickCooldown = 2.0 + Math.random() * 2.0;
+        }
 
-	// random small chance to trigger a burst, scaled by kick
-	if (h._kickCooldown <= 0 && Math.random() < 0.015 * h.stats.kick) {
-  	h._kickTimer    = 0.6 + 0.8 * h.stats.kick;       // burst duration
-  	h._kickCooldown = 2.0 + Math.random() * 2.0;      // wait before another burst
-	}
+        if (prog > 0.82 && h._kickTimer === 0 && !h._lateKickUsed) {
+          h._kickTimer = 0.7 + 0.9 * h.stats.kick;
+          h._lateKickUsed = true;
+        }
 
-	// guaranteed “late kick” once in the last ~18% if not already bursting
-	if (prog > 0.82 && h._kickTimer === 0) {
-  	h._kickTimer = 0.7 + 0.9 * h.stats.kick;
-	}
+        const kickBoost = h._kickTimer > 0
+          ? 1 + (0.20 + 0.80 * h.stats.kick) * (1 - prog * 0.3)
+          : 1;
+        s *= kickBoost;
 
-	// convert active kick time to a speed multiplier
-	const kickBoost = h._kickTimer > 0
-  	? 1 + (0.20 + 0.80 * h.stats.kick) * (1 - prog * 0.3) // slightly stronger earlier in the kick
-  	: 1;
-
-	// apply kick
-	s *= kickBoost;
-
-	// finalBoost — one-time burst in last 10% of the race
-	if (!h._finalBoostUsed && prog > 0.9) {
- 		 s *= h.stats.finalBoost;          // apply burst multiplier
- 		 h._finalBoostUsed = true;         // ensure it triggers only once
-		}
-
-	// tiny tapering effect if already boosted
-	if (h._finalBoostUsed && prog > 0.9) {
- 		 s *= 1.0 - (prog - 0.9) * 0.3;    // fade a bit as it crosses the line
-		}
-	
-
-
+        // Final boost in last 10%
+        if (!h._finalBoostUsed && prog > 0.9) {
+          s *= h.stats.finalBoost;
+          h._finalBoostUsed = true;
+        }
+        if (h._finalBoostUsed && prog > 0.9) {
+          s *= 1.0 - (prog - 0.9) * 0.3; // fade
+        }
 
         h.speed = Math.max(0.8, s);
         h.x += h.speed;
         h.step += h.speed * 0.08;
 
-        if (h.x >= finishLine && !raceFinished) {
-          raceFinished = true; raceActive = false; showWinner(h);
+        // Finish recording (but allow motion after)
+        if (h.x >= finishLine && !h.finished) {
+          h.finished = true;
+          h.finishTime = performance.now();
+          finishOrder.push({
+            name: h.name,
+            lane: h.lane,
+            color: h.color,
+            position: finishOrder.length + 1
+          });
+
+          if (finishOrder.length === horses.length) {
+            raceFinished = true;
+            raceActive = false;
+            showResults();
+          }
+        }
+
+        // Gentle slowdown beyond line
+        if (h.finished && h.x > finishLine + 100) {
+          h.speed *= 0.95;
         }
       });
 
       refreshLeaderboard();
+      updateRaceResults();
     }
 
     // Race control
@@ -426,38 +501,67 @@ function drawName(yOffset){
 
     function startRace() {
       if (raceActive) return;
-      raceActive = true; raceFinished = false;
+      raceActive = true;
+      raceFinished = false;
+      finishOrder = [];
+      horses.forEach(h => {
+        h.finished = false;
+        h.finishTime = null;
+        h._lateKickUsed = false;
+        h._finalBoostUsed = false;
+        h._kickTimer = 0;
+        h._kickCooldown = 0;
+      });
       startBtn.disabled = true;
       resetBtn.disabled = true;
       document.getElementById('winner').style.display = 'none';
+      raceResults.style.display = 'block';
       lastTs = performance.now();
     }
 
     function resetRace() {
-      raceActive = false; raceFinished = false;
+      raceActive = false;
+      raceFinished = false;
       cameraX = 0;
+      finishOrder = [];
       horses.forEach(h=>{
         h.x=50; h.speed=0; h.step=0; h.animTime=0;
         h.y = laneOffset + (h.lane-1)*laneGap;
-	h._kickTimer = 0;
-	h._kickCooldown = 0;
-	h._finalBoostUsed = false;
+        h._kickTimer = 0;
+        h._kickCooldown = 0;
+        h._finalBoostUsed = false;
+        h._lateKickUsed = false;
+        h.finished = false;
+        h.finishTime = null;
       });
       startBtn.disabled = false;
       resetBtn.disabled = true;
       document.getElementById('winner').style.display = 'none';
+      raceResults.style.display = 'none';
       refreshLeaderboard();
     }
 
     function shuffleLanes() {
-      const ids = [1,2,3,4,5].sort(()=>Math.random()-0.5);
-      horses.forEach((h,i)=>{ h.lane = ids[i]; h.y = laneOffset + (h.lane-1)*laneGap; });
+      const ids = horses.map((_, i) => i + 1).sort(() => Math.random() - 0.5);
+      horses.forEach((h,i) => {
+        h.lane = ids[i];
+        h.y = laneOffset + (h.lane-1)*laneGap;
+      });
       refreshLeaderboard();
     }
 
-    function showWinner(horse) {
+    function showResults() {
       const el = document.getElementById('winner');
-      el.innerHTML = `🏆 ${horse.name} WINS! 🏆<br/><br/>Lane ${horse.lane}`;
+      let html = `<div style="font-size:28px; margin-bottom:16px;">🏆 RACE COMPLETE 🏆</div>`;
+      html += '<div style="text-align:left;">';
+      finishOrder.forEach((h, i) => {
+        const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '';
+        html += `<div style="margin:10px 0; font-size:${22-i*1.5}px; padding:8px; background:rgba(139,69,19,0.3); border-radius:6px;">
+          ${medal} <b>${i+1}${getOrdinalSuffix(i+1)}</b> - <span style="color:${h.color}">●</span> ${h.name} <small style="opacity:0.8">(Lane ${h.lane})</small>
+        </div>`;
+      });
+      html += '</div>';
+      el.innerHTML = html;
       el.style.display = 'block';
       resetBtn.disabled = false;
       startBtn.disabled = true;
@@ -478,7 +582,6 @@ function drawName(yOffset){
       const dt = Math.min(0.05, (ts - lastTs) / 1000);
       lastTs = ts;
 
-      // Camera follows leading horse
       if (raceActive || raceFinished) {
         const leader = Math.max(...horses.map(h => h.x));
         const targetCameraX = Math.max(0, Math.min(worldWidth - canvas.width, leader - canvas.width * 0.3));
@@ -486,6 +589,7 @@ function drawName(yOffset){
       }
 
       ctx.save();
+      ctx.setTransform(1,0,0,1,0,0);
       ctx.translate(-cameraX, 0);
 
       drawTrack();
@@ -494,7 +598,6 @@ function drawName(yOffset){
       ctx.restore();
 
       updateHorses(dt);
-
       requestAnimationFrame(loop);
     }
 
@@ -503,7 +606,7 @@ function drawName(yOffset){
     resetBtn.onclick = resetRace;
     shuffleBtn.onclick = shuffleLanes;
 
-    // Toggle UI visibility
+    // Toggle UI visibility (COMPLETED)
     const toggleUIBtn = document.getElementById('toggleUI');
     const uiPanel = document.getElementById('ui');
     toggleUIBtn.onclick = () => {
@@ -511,9 +614,9 @@ function drawName(yOffset){
       toggleUIBtn.textContent = uiPanel.classList.contains('hidden') ? 'Show Settings ⚙️' : 'Hide Settings ⚙️';
     };
 
-    // Init
-    refreshLeaderboard();
+    // Kick off
     refreshButtonsIfLoaded();
+    refreshLeaderboard();
     requestAnimationFrame(loop);
   </script>
 </body>

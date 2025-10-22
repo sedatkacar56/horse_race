@@ -85,7 +85,7 @@
   </div>
 
   <div id="winner"></div>
-
+  <script src="horses.js"></script>
   <script>
     // ---------- YOUR SPRITE SETTINGS ----------
     const SPRITE_SRC_DEFAULT = "default.jpg";
@@ -107,6 +107,7 @@
     let raceActive = false;
     let raceFinished = false;
     let cameraX = 0;
+    let finishOrder = [];
 
     // Shared sprite config
     const spriteConfig = {
@@ -119,19 +120,41 @@
     const horseSprite = new Image();
     horseSprite.src = SPRITE_SRC_DEFAULT;
 
-    // Horses with stats
-    const horses = [
-      { name:'Thunder',   lane:1, color:'#8B0000', x:50, y:laneOffset+0*laneGap, speed:0, step:0, animTime:0, sprite:null,
-        stats:{ baseSpeed:3.4, stamina:0.75, sprint:1.10, variance:0.25, fatigue:0.35, kick:0.80, finalBoost:1.2 } },
-      { name:'Lightning', lane:2, color:'#FFD700', x:50, y:laneOffset+1*laneGap, speed:0, step:0, animTime:0, sprite:null,
-        stats:{ baseSpeed:3.2, stamina:0.95, sprint:1.05, variance:0.18, fatigue:0.25, kick:0.55, finalBoost:1.5 } },
-      { name:'Storm',     lane:3, color:'#4169E1', x:50, y:laneOffset+2*laneGap, speed:0, step:0, animTime:0, sprite:null,
-        stats:{ baseSpeed:3.0, stamina:1.10, sprint:0.98, variance:0.15, fatigue:0.18, kick:0.45, finalBoost:1.0  } },
-      { name:'Blaze',     lane:4, color:'#FF4500', x:50, y:laneOffset+3*laneGap, speed:0, step:0, animTime:0, sprite:null,
-        stats:{ baseSpeed:3.6, stamina:0.70, sprint:1.15, variance:0.30, fatigue:0.40, kick:0.60, finalBoost:2  } },
-      { name:'Shadow',    lane:5, color:'#2F4F4F', x:50, y:laneOffset+4*laneGap, speed:0, step:0, animTime:0, sprite:null,
-        stats:{ baseSpeed:3.1, stamina:1.00, sprint:1.00, variance:0.20, fatigue:0.25, kick:0.90, finalBoost:0.5  } },
-    ];
+// ===== horses (loaded from horses.js) =====
+// (Keep palette if you want a fallback color when one is missing)
+const palette = [
+  "#8B0000","#FFD700","#4169E1","#FF4500","#2F4F4F","#32CD32","#9932CC","#FF69B4",
+  "#00CED1","#D2691E","#E6E6FA","#DC143C","#708090","#FF6347","#9ACD32","#8A2BE2",
+  "#00FA9A","#FFDAB9","#FF8C00","#1E90FF","#A0522D","#ADFF2F","#00BFFF","#20B2AA"
+];
+
+if (!Array.isArray(window.HORSE_DATA) || HORSE_DATA.length === 0) {
+  throw new Error("HORSE_DATA is missing or empty. Make sure horses.js is loaded before this script.");
+}
+
+const horses = HORSE_DATA.map((h, i) => ({
+  name:  h.name,
+  color: h.color || palette[i % palette.length],
+  lane:  i + 1,
+  x: 30,
+  y: laneOffset + i * laneGap,
+  speed: 0,
+  step: 0,
+  animTime: 0,
+  sprite: null,
+  stats: {
+    baseSpeed:  Number(h.baseSpeed),
+    stamina:    Number(h.stamina),
+    sprint:     Number(h.sprint),
+    variance:   Number(h.variance),
+    fatigue:    Number(h.fatigue),
+    kick:       Number(h.kick),
+    finalBoost: Number(h.finalBoost)
+  },
+  yDrift: (Math.random()*2 - 1) * 6
+}));
+
+
 
     // Build per-horse config panel
     const horseConfigEl = document.getElementById('horseConfig');
@@ -216,7 +239,7 @@
       ctx.strokeStyle = 'white';
       ctx.lineWidth = 2;
       ctx.setLineDash([10,5]);
-      for (let i=0; i<=5; i++) {
+      for (let i=0; i<=horses.length; i++) {  // ✅ Dynamic based on horse count
         ctx.beginPath();
         ctx.moveTo(0, laneOffset - laneGap/2 + i*laneGap);
         ctx.lineTo(worldWidth, laneOffset - laneGap/2 + i*laneGap);
@@ -236,7 +259,7 @@
   	ctx.setLineDash([6, 8]);
   	ctx.beginPath();
   	ctx.moveTo(x, laneOffset - laneGap / 2);
-  	ctx.lineTo(x, laneOffset - laneGap / 2 + 5 * laneGap);
+  	ctx.lineTo(x, laneOffset - laneGap / 2 + horses.length * laneGap);
   	ctx.stroke();
   	ctx.setLineDash([]);
 
@@ -358,6 +381,7 @@ function drawName(yOffset){
       if (!raceActive || raceFinished) return;
 
       horses.forEach(h => {
+        if (h.finished) return;  // NEW - skip horses that already finished
         const prog = Math.min(1, (h.x - 50) / (finishLine - 50));
         const startBoost  = 1 + (h.stats.sprint - 1) * Math.exp(-prog * 6);
         const staminaHold = Math.pow(h.stats.stamina, prog * 2.2);
@@ -410,9 +434,20 @@ function drawName(yOffset){
         h.x += h.speed;
         h.step += h.speed * 0.08;
 
-        if (h.x >= finishLine && !raceFinished) {
-          raceFinished = true; raceActive = false; showWinner(h);
-        }
+        if (h.x >= finishLine && !h.finished)  {
+          h.finished = true;
+          finishOrder.push({
+            name: h.name,
+            lane: h.lane,
+            color: h.color,
+            position: finishOrder.length + 1});
+          if (finishOrder.length === horses.length) {
+            raceFinished = true;
+            raceActive = false;
+            showResults();  // NEW function
+                  }
+                }
+       
       });
 
       refreshLeaderboard();
@@ -426,7 +461,10 @@ function drawName(yOffset){
 
     function startRace() {
       if (raceActive) return;
-      raceActive = true; raceFinished = false;
+      raceActive = true; 
+      raceFinished = false;
+      finishOrder = [];  // ✅ Add this
+      horses.forEach(h => h.finished = false);  // ✅ Add this
       startBtn.disabled = true;
       resetBtn.disabled = true;
       document.getElementById('winner').style.display = 'none';
@@ -462,7 +500,18 @@ function drawName(yOffset){
       resetBtn.disabled = false;
       startBtn.disabled = true;
     }
-
+    function showResults() {
+     const el = document.getElementById('winner');
+      let html = `<div style="font-size:28px; margin-bottom:16px;">🏆 RACE COMPLETE 🏆</div>`;
+      finishOrder.forEach((h, i) => {
+        const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '';
+        html += `<div style="margin:8px 0; font-size:${20-i}px;">${medal} ${i+1}. <span style="color:${h.color}">●</span> ${h.name} (Lane ${h.lane})</div>`;
+      });
+      el.innerHTML = html;
+      el.style.display = 'block';
+      resetBtn.disabled = false;
+      startBtn.disabled = true;
+    }
     function refreshButtonsIfLoaded() {
       const allReady = horseSprite.complete || horses.some(h => h.sprite?.img?.complete);
       startBtn.disabled   = !allReady;
