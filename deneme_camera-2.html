@@ -92,12 +92,18 @@
     <h4 style="margin:8px 0">📜 Race History</h4>
     <div id="raceHistory" style="max-height:200px;overflow-y:auto"></div>
     <button id="clearHistoryBtn" style="margin-top:8px;font-size:12px;padding:6px 12px">Clear History</button>
+
+    <hr style="border:none;height:1px;background:rgba(255,255,255,.25);margin:10px 0">
+    <h4 style="margin:8px 0">🏆 All Horses Complete Stats</h4>
+    <div id="completeStats" style="max-height:250px;overflow-y:auto;font-size:12px"></div>
     
     <hr style="border:none;height:1px;background:rgba(255,255,255,.25);margin:10px 0">
     <h4 style="margin:8px 0">💾 Export Settings</h4>
     <button id="downloadHorsesBtn" style="font-size:12px;padding:6px 12px;width:100%;margin-bottom:6px">Download horses.js</button>
-    <button id="copyHorsesBtn" style="font-size:12px;padding:6px 12px;width:100%;background:#2196F3">Copy horses.js Code</button>
-    <div class="tiny" style="margin-top:6px;opacity:0.7">Download or copy current horse stats. Paste into a text file and save as "horses.js"</div>
+    <button id="copyHorsesBtn" style="font-size:12px;padding:6px 12px;width:100%;background:#2196F3;margin-bottom:6px">Copy horses.js Code</button>
+    <button id="downloadRaceHistoryBtn" style="font-size:12px;padding:6px 12px;width:100%;background:#FF9800;margin-bottom:6px">Download racehistory.js</button>
+    <button id="copyRaceHistoryBtn" style="font-size:12px;padding:6px 12px;width:100%;background:#FF5722">Copy racehistory.js Code</button>
+    <div class="tiny" style="margin-top:6px;opacity:0.7">Download or copy current horse stats and race history. Save as .js files and link in HTML.</div>
   </div>
 
   <div id="controls">
@@ -112,6 +118,9 @@
 
   <!-- Your horse stats -->
   <script src="horses.js"></script>
+	
+  <script src="race_params.js"></script>
+
 
   <script>
     /* ---------- SPRITE SETTINGS ---------- */
@@ -120,16 +129,29 @@
     const SPRITE_SCALE_DEFAULT  = 1.0;
     /* ------------------------------------ */
 
-    // Canvas & world
-    const canvas = document.getElementById('gameCanvas');
-    const ctx = canvas.getContext('2d');
-    canvas.width = 1200;
-    canvas.height = 600;
-    const worldWidth = 5000;
+// Canvas & world
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
 
-    const laneGap = 10;
-    const laneOffset = 120;
-    const finishLine = 4500;
+// Use params from race_params.js if available, otherwise defaults
+const PARAMS = window.RACE_PARAMS || {cw:1200, ch:600, ww:5000, lg:10, lo:100, fl:4500};
+
+canvas.width = PARAMS.cw;
+canvas.height = PARAMS.ch;
+const worldWidth = PARAMS.ww;
+const laneGap = PARAMS.lg;
+const laneOffset = PARAMS.lo;
+const finishLine = PARAMS.fl;
+
+console.log("🏇 Using parameters:", PARAMS);
+
+// Display parameters on screen
+const paramInfo = document.createElement('div');
+paramInfo.style.cssText = 'position:fixed;top:10px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.8);color:lime;padding:10px;border-radius:8px;font-family:monospace;font-size:12px;z-index:9999';
+paramInfo.innerHTML = `⚙️ Race Parameters:<br>World: ${worldWidth}px | Finish: ${finishLine}px<br>Canvas: ${canvas.width}x${canvas.height} | Lane Gap: ${laneGap}`;
+document.body.appendChild(paramInfo);
+setTimeout(() => paramInfo.remove(), 5000);
+
 
     let raceActive = false;
     let raceFinished = false;
@@ -138,8 +160,22 @@
     let raceHistory = []; // Store all race results
     let raceNumber = 0;
 
+    // Load race history from racehistory.js if available
+    if (window.RACE_HISTORY_DATA) {
+      raceHistory = window.RACE_HISTORY_DATA.races || [];
+      raceNumber = window.RACE_HISTORY_DATA.raceNumber || 0;
+      console.log('Loaded race history from racehistory.js:', raceHistory.length, 'races');
+    }
+
     // Load race history from storage on startup
     async function loadRaceHistory() {
+      // Skip loading from storage if racehistory.js was already loaded
+      if (window.RACE_HISTORY_DATA) {
+        updateRaceHistory();
+        refreshLeaderboard();
+        return;
+      }
+      
       try {
         // Try Claude.ai storage first
         if (window.storage) {
@@ -473,6 +509,7 @@
     function updateRaceHistory() {
       if (raceHistory.length === 0) {
         raceHistoryEl.innerHTML = '<div class="tiny" style="opacity:0.7">No races completed yet</div>';
+        updateCompleteStats();
         return;
       }
       
@@ -494,6 +531,39 @@
       });
       
       raceHistoryEl.innerHTML = html;
+      updateCompleteStats();
+    }
+
+    function updateCompleteStats() {
+      const completeStatsEl = document.getElementById('completeStats');
+      
+      if (raceHistory.length === 0) {
+        completeStatsEl.innerHTML = '<div class="tiny" style="opacity:0.7">No races completed yet</div>';
+        return;
+      }
+
+      let html = '<div style="background:rgba(0,0,0,0.2);padding:8px;border-radius:6px">';
+      
+      horses.forEach(h => {
+        // Build race code for this horse
+        let raceCode = '';
+        raceHistory.forEach(race => {
+          const result = race.results.find(r => r.name === h.name);
+          if (result) {
+            raceCode += result.position >= 10 ? '0' : result.position;
+          }
+        });
+        
+        if (raceCode) {
+          html += `<div style="padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.1)">
+            <span style="color:${h.color};font-size:16px">●</span> 
+            <b>${h.name}</b> - ${raceCode}
+          </div>`;
+        }
+      });
+      
+      html += '</div>';
+      completeStatsEl.innerHTML = html;
     }
 
     function updateRaceResults() {
@@ -709,19 +779,123 @@
       shuffleBtn.disabled = !allReady;
       loadStatus.textContent = allReady ? "Sprites loaded. Ready to race!" : "Loading sprites…";
     }
+
     horseSprite.onload = refreshButtonsIfLoaded;
 
-    // Game loop with camera tracking
-    let lastTs = performance.now();
-    function loop(ts) {
-      const dt = Math.min(0.05, (ts - lastTs) / 1000);
-      lastTs = ts;
+    // Add this BEFORE the loop function (around line 580)
+    let followHorseIndex = -1; // -1 = follow leader, 0-10 = specific horse
 
-      if (raceActive || raceFinished) {
-        const leader = Math.max(...horses.map(h => h.x));
-        const targetCameraX = Math.max(0, Math.min(worldWidth - canvas.width, leader - canvas.width * 0.3));
-        cameraX += (targetCameraX - cameraX) * 0.1;
+    // Keyboard controls for camera
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowLeft') {
+        // Previous horse
+        followHorseIndex--;
+        if (followHorseIndex < -1) followHorseIndex = horses.length - 1;
+        showFollowMessage();
+        e.preventDefault();
+      } else if (e.key === 'ArrowRight') {
+        // Next horse
+        followHorseIndex++;
+        if (followHorseIndex >= horses.length) followHorseIndex = -1;
+        showFollowMessage();
+        e.preventDefault();
+      } else if (e.key === 'ArrowUp') {
+        // Follow leader
+        followHorseIndex = -1;
+        showFollowMessage();
+        e.preventDefault();
+      } else if (e.key === 'ArrowDown') {
+        // Follow last place
+        followHorseIndex = -2;
+        showFollowMessage();
+        e.preventDefault();
+      } else if (e.key >= '1' && e.key <= '9') {
+        // Press number key to follow that lane
+        const lane = parseInt(e.key) - 1;
+        if (lane < horses.length) {
+          followHorseIndex = lane;
+          showFollowMessage();
+        }
+        e.preventDefault();
       }
+    });
+
+    // Show camera follow message
+    function showFollowMessage() {
+      // Remove old message if exists
+      const oldMsg = document.getElementById('followMsg');
+      if (oldMsg) oldMsg.remove();
+      
+      const msg = document.createElement('div');
+      msg.id = 'followMsg';
+      msg.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.9);color:#FFD700;padding:12px 20px;border-radius:8px;font-family:Arial;font-size:16px;font-weight:bold;z-index:9999;border:2px solid #FFD700';
+      
+      if (followHorseIndex === -1) {
+        msg.innerHTML = '📹 Following: LEADER 🏆';
+      } else if (followHorseIndex === -2) {
+        msg.innerHTML = '📹 Following: LAST PLACE 🐌';
+      } else {
+        const horse = horses[followHorseIndex];
+        msg.innerHTML = `📹 Following: <span style="color:${horse.color}">●</span> ${horse.name} (Lane ${horse.lane})`;
+      }
+      
+      document.body.appendChild(msg);
+      setTimeout(() => msg.remove(), 2000);
+    }
+
+    // Game loop with camera tracking
+   let lastTs = performance.now();
+function loop(ts) {
+  const dt = Math.min(0.05, (ts - lastTs) / 1000);
+  lastTs = ts;
+
+  // 👇 NEW camera targeting (replace your old leader-only code)
+  {
+    const rawTarget = followTargetX(); // uses followHorseIndex
+    const clamped = Math.max(0, Math.min(worldWidth - canvas.width, rawTarget));
+    cameraX += (clamped - cameraX) * 0.12; // smoothing
+  }
+
+  ctx.save();
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.translate(-cameraX, 0);
+
+  drawTrack();
+  horses.slice().sort((a,b)=>a.y-b.y).forEach(h => drawHorseSprite(h, dt));
+
+  ctx.restore();
+
+  updateHorses(dt);
+  requestAnimationFrame(loop);
+}
+
+
+   
+
+function followTargetX() {
+  // default: follow leader
+  if (followHorseIndex === -1) {
+    const leaderX = Math.max(...horses.map(h => h.x));
+    return leaderX - canvas.width * 0.3;
+  }
+  // follow last place
+  if (followHorseIndex === -2) {
+    const lastX = Math.min(...horses.map(h => h.x));
+    return lastX - canvas.width * 0.3;
+  }
+  // follow a specific horse (by index)
+  const h = horses[followHorseIndex];
+  if (h) return h.x - canvas.width * 0.3;
+
+  // safety fallback
+  const leaderX = Math.max(...horses.map(h => h.x));
+  return leaderX - canvas.width * 0.3;
+}
+
+
+
+
+
 
       ctx.save();
       ctx.setTransform(1,0,0,1,0,0);
@@ -837,6 +1011,63 @@ ${horseLines}
         document.body.appendChild(textarea);
         textarea.select();
         alert('Copy this code manually (Ctrl+A then Ctrl+C), then close this box');
+        setTimeout(() => document.body.removeChild(textarea), 30000);
+      });
+    };
+
+    // Download racehistory.js
+    document.getElementById('downloadRaceHistoryBtn').onclick = () => {
+      const jsContent = `// Race History Data
+// This file stores all completed race results
+
+window.RACE_HISTORY_DATA = {
+  raceNumber: ${raceNumber},
+  races: ${JSON.stringify(raceHistory, null, 2)}
+};
+`;
+
+      const blob = new Blob([jsContent], { type: 'text/javascript' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'racehistory.js';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      alert('racehistory.js downloaded! Add this line to your HTML before the main script tag.');
+    };
+
+    // Copy racehistory.js to clipboard
+    document.getElementById('copyRaceHistoryBtn').onclick = () => {
+      const jsContent = `// Race History Data
+// This file stores all completed race results
+
+window.RACE_HISTORY_DATA = {
+  raceNumber: ${raceNumber},
+  races: ${JSON.stringify(raceHistory, null, 2)}
+};
+`;
+
+      navigator.clipboard.writeText(jsContent).then(() => {
+        alert('racehistory.js code copied to clipboard!');
+      }).catch(err => {
+        const textarea = document.createElement('textarea');
+        textarea.value = jsContent;
+        textarea.style.position = 'fixed';
+        textarea.style.top = '50%';
+        textarea.style.left = '50%';
+        textarea.style.transform = 'translate(-50%, -50%)';
+        textarea.style.width = '80%';
+        textarea.style.height = '80%';
+        textarea.style.zIndex = '10000';
+        textarea.style.background = 'white';
+        textarea.style.color = 'black';
+        textarea.style.padding = '20px';
+        document.body.appendChild(textarea);
+        textarea.select();
+        alert('Copy this code manually then close this box');
         setTimeout(() => document.body.removeChild(textarea), 30000);
       });
     };

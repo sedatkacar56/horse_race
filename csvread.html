@@ -1,0 +1,51 @@
+<input id="csvInput" type="file" accept=".csv" />
+
+<script>
+  function parseCSV(text) {
+    const lines = text.trim().split(/\r?\n/);
+    const headers = lines.shift().split(',').map(h => h.trim());
+    return lines
+      .map(line => line.split(',').map(c => c.trim()))
+      .filter(cols => cols.length === headers.length)
+      .map(cols => Object.fromEntries(cols.map((v, i) => [headers[i], v])));
+  }
+
+  function rowsToHorses(rows, palette, laneOffset, laneGap) {
+    return rows.map((h, i) => ({
+      name:  h.name,
+      color: h.color || palette[i % palette.length],
+      lane:  i + 1,
+      x: 50,
+      y: laneOffset + i * laneGap,
+      speed: 0,
+      step: 0,
+      animTime: 0,
+      sprite: null,
+      finished: false,
+      finishTime: null,
+      stats: {
+        baseSpeed:  Number(h.baseSpeed),
+        stamina:    Number(h.stamina),
+        sprint:     Number(h.sprint),
+        variance:   Number(h.variance),
+        fatigue:    Number(h.fatigue),
+        kick:       Number(h.kick),
+        finalBoost: Number(h.finalBoost)
+      }
+    }));
+  }
+
+  const palette = ["#e6194B","#3cb44b","#ffe119","#4363d8","#f58231","#911eb4"];
+  const laneOffset = 80, laneGap = 52;
+
+  document.getElementById('csvInput').addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const text = await file.text();
+    const rows = parseCSV(text);
+    const horses = rowsToHorses(rows, palette, laneOffset, laneGap);
+
+    // Now use `horses` exactly where you previously used the mapped HORSE_DATA
+    startRace(horses); // <-- your function
+  });
+</script>
