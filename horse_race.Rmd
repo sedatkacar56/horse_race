@@ -6,5 +6,122 @@ date: "2025-10-24"
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+setwd("horse_race_functions")
+# Load all function files automatically
+source("csv_to_js.R")
+source("export_last_race_csv.R")
+source("generate_horse_names.R")
+source("horse_add.R")
+source("set_race_params.R")
+source("normalize_horse_speeds.R")
+
 ```
+
+
+
+```{r}
+
+
+horses <- read.csv("horse.csv", row.names = 1)
+
+csv_extra_js(csv_path = "horse.csv")
+
+write.csv(horses, "horse2.csv")
+
+```
+
+
+
+
+
+#GENERATE 99 horses
+
+```{r}
+# assume your original data frame is called df
+# e.g. df <- read.csv("C:/Users/skacar/Documents/horse_race/horses.csv")
+#sampeCOLORHORSES FOR ALL COLOR
+csv_to_js_grass(c(29, 1, 9, 4,
+                  34, 7,12, 16,
+                  3, 5,
+                  14,46,42,
+                  31, 10, 13, 2))
+
+
+
+library(dplyr)
+horses$columns <- rownames(horses)
+horse_try <- horses %>%
+  arrange(position)
+last10 <- tail(horse_try, 5)
+last10_rows <- last10$columns
+
+
+csv_to_js(c(53, 52,54))
+csv_to_js_old(c(43:59)) #1
+csv_to_js(c(53, 52,54), backgroundTop = "#B8860B", backgroundBottom = "#8B5A2B") #1
+csv_to_js(c(53, 52,54), backgroundTop = "#C19A6B", backgroundBottom = "#8B5A2B", border = "#5C4033") #1
+
+csv_to_js_grass(c(78, 74, 42, 46, 47, 63,14, 30, 1:10))
+
+set_race_params(ww = 15000, fl = 14500, ch = 5000, html_name = "deneme_control_canvas17") #2
+
+export_last_race_csv() #3
+
+
+df <- horses[c(51,53), ]
+
+#yes <- rownames(horses)[is.na(horses$position)]
+
+yes <- rownames(horses)[horses$position %in% 1]#0
+no <- rownames(horses)[horses$position %in% 2]
+
+yesno <- c(yes, no)
+
+
+horses <- read.csv("horses.csv", row.names = 1)
+
+# Use it:
+
+
+
+write.csv(horses, "horses.csv")
+
+horse_add(overwrite = T)
+
+html_difference(first_html = "deneme_control_canvas8", second_html = "deneme_control_canvas10" , directory = "C:/Users/skacar/Documents/horse_race/breakinto_racehtml")
+
+```
+
+
+
+
+
+
+```{r}
+ww = 5000
+fl = 4500
+cw = 1200
+ch = 600
+lg = 10
+lo = 100
+
+
+  backgroundTop <- "#D2B48C"
+  backgroundBottom <-  "#C19A6B"
+  border <-  "#8B4513"
+
+
+
+  # Write simple JS file
+  js_config <- sprintf(
+    "window.TRACK_STYLE = {backgroundTop:%s, backgroundBottom:%s, border:%s};",
+    backgroundTop, backgroundBottom, border)
+  
+  writeLines(js_config, "C:/Users/skacar/Documents/horse_race/race_params.js")
+  
+  ?writeLines
+  
+```
+
+
 

@@ -404,76 +404,151 @@ setTimeout(() => paramInfo.remove(), 5000);
       }
     }
 
-    // Sprite drawing
-    function drawHorseSprite(horse, dt) {
-      const { frames, scale, fps } = spriteConfig;
-      const hasSprite = horse.sprite && horse.sprite.img && horse.sprite.img.complete;
+  
 
-      function drawName(yOffset){
-        ctx.font = 'bold 14px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'bottom';
-        ctx.strokeStyle = 'rgba(0,0,0,0.6)';
-        ctx.lineWidth = 4;
-        ctx.strokeText(horse.name, 0, yOffset);
-        ctx.fillStyle = '#fff';
-        ctx.fillText(horse.name, 0, yOffset);
-      }
 
-      // Use default sprite if present
-      if (!hasSprite && horseSprite.complete) {
-        ctx.save();
-        ctx.translate(horse.x, horse.y);
-        const animFps = fps + horse.speed * 0.6;
-        horse.animTime = (horse.animTime || 0) + animFps * dt;
-        const frameWidth  = horseSprite.width / SPRITE_FRAMES_DEFAULT;
-        const frameHeight = horseSprite.height;
-        const frame       = Math.floor(horse.animTime) % SPRITE_FRAMES_DEFAULT;
-        const drawWidth  = frameWidth  * SPRITE_SCALE_DEFAULT;
-        const drawHeight = frameHeight * SPRITE_SCALE_DEFAULT;
-        ctx.drawImage(
-          horseSprite,
-          frame * frameWidth, 0, frameWidth, frameHeight,
-          -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight
-        );
-        drawName(-drawHeight * 0.6);
-        ctx.restore();
-        return;
-      }
 
-      // Fallback circle
-      if (!hasSprite) {
-        ctx.save();
-        ctx.translate(horse.x, horse.y);
-        ctx.fillStyle = horse.color;
-        ctx.beginPath(); ctx.arc(0,0,18,0,Math.PI*2); ctx.fill();
-        ctx.fillStyle = '#fff'; ctx.font='bold 14px Arial'; ctx.textAlign='center'; ctx.textBaseline='middle';
-        ctx.fillText(horse.lane, 0, 0);
-        drawName(-30);
-        ctx.restore();
-        return;
-      }
 
-      // Custom sprite
-      const img = horse.sprite.img;
-      const frameW = Math.floor(img.width / frames);
-      const frameH = img.height;
-      const animFps = fps + horse.speed * 0.6;
-      horse.animTime = (horse.animTime || 0) + animFps * dt;
-      const frameIndex = Math.floor(horse.animTime) % frames;
-      const drawW = frameW * scale;
-      const drawH = frameH * scale;
 
-      ctx.save();
-      ctx.translate(horse.x, horse.y);
-      ctx.drawImage(
-        img,
-        frameIndex * frameW, 0, frameW, frameH,
-        -drawW*0.5, -drawH*0.5, drawW, drawH
-      );
-      drawName(-drawH * 0.6);
-      ctx.restore();
-    }
+
+// Sprite drawing with proper color tinting
+function drawHorseSprite(horse, dt) {
+  const { frames, scale, fps } = spriteConfig;
+  const hasSprite = horse.sprite && horse.sprite.img && horse.sprite.img.complete;
+
+  function drawName(yOffset){
+    ctx.font = 'bold 14px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+    ctx.lineWidth = 4;
+    ctx.strokeText(horse.name, 0, yOffset);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(horse.name, 0, yOffset);
+  }
+
+  // Use default sprite if present
+  if (!hasSprite && horseSprite.complete) {
+    ctx.save();
+    ctx.translate(horse.x, horse.y);
+    const animFps = fps + horse.speed * 0.6;
+    horse.animTime = (horse.animTime || 0) + animFps * dt;
+    const frameWidth  = horseSprite.width / SPRITE_FRAMES_DEFAULT;
+    const frameHeight = horseSprite.height;
+    const frame       = Math.floor(horse.animTime) % SPRITE_FRAMES_DEFAULT;
+    const drawWidth  = frameWidth  * SPRITE_SCALE_DEFAULT;
+    const drawHeight = frameHeight * SPRITE_SCALE_DEFAULT;
+    
+    // Create temporary canvas for tinting
+    const tempCanvas = document.createElement('canvas');
+    const tempCtx = tempCanvas.getContext('2d');
+    tempCanvas.width = drawWidth;
+    tempCanvas.height = drawHeight;
+    
+    // Draw horse to temp canvas
+    tempCtx.drawImage(
+      horseSprite,
+      frame * frameWidth, 0, frameWidth, frameHeight,
+      0, 0, drawWidth, drawHeight
+    );
+    
+    // Apply color tint using multiply blend
+    tempCtx.globalCompositeOperation = 'multiply';
+    tempCtx.fillStyle = horse.color;
+    tempCtx.fillRect(0, 0, drawWidth, drawHeight);
+    
+    // Restore original alpha channel (removes background tinting)
+    tempCtx.globalCompositeOperation = 'destination-in';
+    tempCtx.drawImage(
+      horseSprite,
+      frame * frameWidth, 0, frameWidth, frameHeight,
+      0, 0, drawWidth, drawHeight
+    );
+    
+    tempCtx.globalCompositeOperation = 'source-over';
+    
+    // Draw tinted horse
+    ctx.drawImage(tempCanvas, -drawWidth / 2, -drawHeight / 2);
+    
+    drawName(-drawHeight * 0.6);
+    ctx.restore();
+    return;
+  }
+
+  // Fallback circle (already uses color)
+  if (!hasSprite) {
+    ctx.save();
+    ctx.translate(horse.x, horse.y);
+    ctx.fillStyle = horse.color;
+    ctx.beginPath(); ctx.arc(0,0,18,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font='bold 14px Arial'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(horse.lane, 0, 0);
+    drawName(-30);
+    ctx.restore();
+    return;
+  }
+
+  // Custom sprite with color tint
+  const img = horse.sprite.img;
+  const frameW = Math.floor(img.width / frames);
+  const frameH = img.height;
+  const animFps = fps + horse.speed * 0.6;
+  horse.animTime = (horse.animTime || 0) + animFps * dt;
+  const frameIndex = Math.floor(horse.animTime) % frames;
+  const drawW = frameW * scale;
+  const drawH = frameH * scale;
+
+  ctx.save();
+  ctx.translate(horse.x, horse.y);
+  
+  // Create temporary canvas for tinting
+  const tempCanvas = document.createElement('canvas');
+  const tempCtx = tempCanvas.getContext('2d');
+  tempCanvas.width = drawW;
+  tempCanvas.height = drawH;
+  
+  // Draw sprite frame
+  tempCtx.drawImage(
+    img,
+    frameIndex * frameW, 0, frameW, frameH,
+    0, 0, drawW, drawH
+  );
+  
+  // Apply color tint
+  tempCtx.globalCompositeOperation = 'multiply';
+  tempCtx.fillStyle = horse.color;
+  tempCtx.fillRect(0, 0, drawW, drawH);
+  
+  // Restore transparency
+  tempCtx.globalCompositeOperation = 'destination-in';
+  tempCtx.drawImage(
+    img,
+    frameIndex * frameW, 0, frameW, frameH,
+    0, 0, drawW, drawH
+  );
+  
+  tempCtx.globalCompositeOperation = 'source-over';
+  
+  // Draw tinted result
+  ctx.drawImage(tempCanvas, -drawW*0.5, -drawH*0.5);
+
+  drawName(-drawH * 0.6);
+  ctx.restore();
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     // Leaderboard & results
     const leaderboard = document.getElementById('leaderboard');
@@ -779,123 +854,19 @@ setTimeout(() => paramInfo.remove(), 5000);
       shuffleBtn.disabled = !allReady;
       loadStatus.textContent = allReady ? "Sprites loaded. Ready to race!" : "Loading sprites…";
     }
-
     horseSprite.onload = refreshButtonsIfLoaded;
 
-    // Add this BEFORE the loop function (around line 580)
-    let followHorseIndex = -1; // -1 = follow leader, 0-10 = specific horse
-
-    // Keyboard controls for camera
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'ArrowLeft') {
-        // Previous horse
-        followHorseIndex--;
-        if (followHorseIndex < -1) followHorseIndex = horses.length - 1;
-        showFollowMessage();
-        e.preventDefault();
-      } else if (e.key === 'ArrowRight') {
-        // Next horse
-        followHorseIndex++;
-        if (followHorseIndex >= horses.length) followHorseIndex = -1;
-        showFollowMessage();
-        e.preventDefault();
-      } else if (e.key === 'ArrowUp') {
-        // Follow leader
-        followHorseIndex = -1;
-        showFollowMessage();
-        e.preventDefault();
-      } else if (e.key === 'ArrowDown') {
-        // Follow last place
-        followHorseIndex = -2;
-        showFollowMessage();
-        e.preventDefault();
-      } else if (e.key >= '1' && e.key <= '9') {
-        // Press number key to follow that lane
-        const lane = parseInt(e.key) - 1;
-        if (lane < horses.length) {
-          followHorseIndex = lane;
-          showFollowMessage();
-        }
-        e.preventDefault();
-      }
-    });
-
-    // Show camera follow message
-    function showFollowMessage() {
-      // Remove old message if exists
-      const oldMsg = document.getElementById('followMsg');
-      if (oldMsg) oldMsg.remove();
-      
-      const msg = document.createElement('div');
-      msg.id = 'followMsg';
-      msg.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.9);color:#FFD700;padding:12px 20px;border-radius:8px;font-family:Arial;font-size:16px;font-weight:bold;z-index:9999;border:2px solid #FFD700';
-      
-      if (followHorseIndex === -1) {
-        msg.innerHTML = '📹 Following: LEADER 🏆';
-      } else if (followHorseIndex === -2) {
-        msg.innerHTML = '📹 Following: LAST PLACE 🐌';
-      } else {
-        const horse = horses[followHorseIndex];
-        msg.innerHTML = `📹 Following: <span style="color:${horse.color}">●</span> ${horse.name} (Lane ${horse.lane})`;
-      }
-      
-      document.body.appendChild(msg);
-      setTimeout(() => msg.remove(), 2000);
-    }
-
     // Game loop with camera tracking
-   let lastTs = performance.now();
-function loop(ts) {
-  const dt = Math.min(0.05, (ts - lastTs) / 1000);
-  lastTs = ts;
+    let lastTs = performance.now();
+    function loop(ts) {
+      const dt = Math.min(0.05, (ts - lastTs) / 1000);
+      lastTs = ts;
 
-  // 👇 NEW camera targeting (replace your old leader-only code)
-  {
-    const rawTarget = followTargetX(); // uses followHorseIndex
-    const clamped = Math.max(0, Math.min(worldWidth - canvas.width, rawTarget));
-    cameraX += (clamped - cameraX) * 0.12; // smoothing
-  }
-
-  ctx.save();
-  ctx.setTransform(1,0,0,1,0,0);
-  ctx.translate(-cameraX, 0);
-
-  drawTrack();
-  horses.slice().sort((a,b)=>a.y-b.y).forEach(h => drawHorseSprite(h, dt));
-
-  ctx.restore();
-
-  updateHorses(dt);
-  requestAnimationFrame(loop);
-}
-
-
-   
-
-function followTargetX() {
-  // default: follow leader
-  if (followHorseIndex === -1) {
-    const leaderX = Math.max(...horses.map(h => h.x));
-    return leaderX - canvas.width * 0.3;
-  }
-  // follow last place
-  if (followHorseIndex === -2) {
-    const lastX = Math.min(...horses.map(h => h.x));
-    return lastX - canvas.width * 0.3;
-  }
-  // follow a specific horse (by index)
-  const h = horses[followHorseIndex];
-  if (h) return h.x - canvas.width * 0.3;
-
-  // safety fallback
-  const leaderX = Math.max(...horses.map(h => h.x));
-  return leaderX - canvas.width * 0.3;
-}
-
-
-
-
-
+      if (raceActive || raceFinished) {
+        const leader = Math.max(...horses.map(h => h.x));
+        const targetCameraX = Math.max(0, Math.min(worldWidth - canvas.width, leader - canvas.width * 0.3));
+        cameraX += (targetCameraX - cameraX) * 0.1;
+      }
 
       ctx.save();
       ctx.setTransform(1,0,0,1,0,0);

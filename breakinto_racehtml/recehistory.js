@@ -1,0 +1,1 @@
+window.RACE_HISTORY_DATA

@@ -1,0 +1,2 @@
+    // Draw tinted horse
+    ctx.drawImage(tempCanvas, -drawWidth / 2, -drawHeight / 2 - 22);  if u increase 22 horses last horse shif to up ans sit lane

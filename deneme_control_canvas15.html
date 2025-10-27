@@ -75,18 +75,6 @@
       <label>Scale</label>
       <input id="scaleInput" type="number" min="0.2" max="4" step="0.1" />
     </div>
-
-    <hr style="border:none;height:1px;background:rgba(255,255,255,.25);margin:10px 0">
-
-<h4 style="margin:8px 0">🎨 Sprite</h4>
-<div class="row">
-  <label>Files</label>
-  <input id="spriteFiles" type="file" accept="image/*" multiple>
-</div>
-
-<div id="spritePreview" class="tiny" style="margin-top:8px;line-height:1.4"></div>
-
-
     <div class="tiny">Tip: If the horse looks too small/large, change <b>Scale</b>.</div>
 
     <hr style="border:none;height:1px;background:rgba(255,255,255,.25);margin:10px 0">
@@ -110,7 +98,6 @@
   <div id="controls">
     <button id="startBtn" disabled>Start Race</button>
     <button id="resetBtn" disabled>Reset Race</button>
-    <button id="pauseBtn" disabled>Pause</button>
     <span id="loadStatus" class="tiny">Loading sprites…</span>
   </div>
 
@@ -124,7 +111,6 @@
 
 
   <script>
-
     /* ---------- SPRITE SETTINGS ---------- */
     const SPRITE_SRC_DEFAULT = "default.jpg";
     const SPRITE_FRAMES_DEFAULT = 6;
@@ -134,28 +120,6 @@
 // Canvas & world
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-
-// Use params from race_params.js if available, otherwise defaults
-const PARAMS = window.RACE_PARAMS || {cw:1200, ch:600, ww:5000, lg:10, lo:100, fl:4500};
-
-const VIEW_W = PARAMS.cw;
-const VIEW_H = PARAMS.ch;
-const worldWidth = PARAMS.ww;
-const laneGap = PARAMS.lg;
-const laneOffset = PARAMS.lo;
-const finishLine = PARAMS.fl;
-
-console.log("🏇 Using parameters:", PARAMS);
-
-// 🔹 High-DPI (Retina / HD) rendering setup
-const DPR = Math.max(1, window.devicePixelRatio || 1);
-canvas.width  = VIEW_W * DPR;
-canvas.height = VIEW_H * DPR;
-canvas.style.width  = VIEW_W + 'px';
-canvas.style.height = VIEW_H + 'px';
-ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-ctx.imageSmoothingEnabled = true;        // set false for pixel-art
-ctx.imageSmoothingQuality = 'high';
 
 // Apply track colors from horses.js
 if (window.TRACK_STYLE) {
@@ -168,7 +132,17 @@ if (window.TRACK_STYLE) {
 
 
 
+// Use params from race_params.js if available, otherwise defaults
+const PARAMS = window.RACE_PARAMS || {cw:1200, ch:600, ww:5000, lg:10, lo:100, fl:4500};
 
+canvas.width = PARAMS.cw;
+canvas.height = PARAMS.ch;
+const worldWidth = PARAMS.ww;
+const laneGap = PARAMS.lg;
+const laneOffset = PARAMS.lo;
+const finishLine = PARAMS.fl;
+
+console.log("🏇 Using parameters:", PARAMS);
 
 
 // === Dynamic furlong calculation ===
@@ -197,7 +171,7 @@ paramInfo.style.cssText =
 paramInfo.innerHTML = `
 ⚙️ Race Parameters:<br>
 World: ${worldWidth}px | Finish: ${finishLine}px<br>
-Canvas: ${VIEW_W}x${VIEW_H} | Lane Gap: ${laneGap}<br>
+Canvas: ${canvas.width}x${canvas.height} | Lane Gap: ${laneGap}<br>
 🏁 Estimated Distance: <b>${FURLONGS_TOTAL} furlongs</b>
 `;
 
@@ -305,12 +279,10 @@ setTimeout(() => paramInfo.remove(), 5000);
       "#00CED1","#D2691E","#E6E6FA","#DC143C","#708090","#FF6347","#9ACD32","#8A2BE2",
       "#00FA9A","#FFDAB9","#FF8C00","#1E90FF","#A0522D","#ADFF2F","#00BFFF","#20B2AA"
     ];
-    
-if (!Array.isArray(window.HORSE_DATA) || HORSE_DATA.length === 0) {
-  loadStatus.textContent = "HORSE_DATA missing. Check horses.js is loaded and defines HORSE_DATA.";
-  console.error("HORSE_DATA is missing or empty. Make sure horses.js is loaded before this script.");
-}
 
+    if (!Array.isArray(window.HORSE_DATA) || HORSE_DATA.length === 0) {
+      throw new Error("HORSE_DATA is missing or empty. Make sure horses.js is loaded before this script.");
+    }
 
     const horses = HORSE_DATA.map((h, i) => ({
       name:  h.name,
@@ -335,70 +307,6 @@ if (!Array.isArray(window.HORSE_DATA) || HORSE_DATA.length === 0) {
       }
     }));
 
-
-
-    /* ========= Multi-sprite loader (files or whole folder) ========= */
-
-// UI refs
-const spriteFileInput = document.getElementById('spriteFiles');
-const spritePreviewEl  = document.getElementById('spritePreview');
-
-// Change handler (uses your single-sprite applySpriteFiles)
-spriteFileInput?.addEventListener('change', (e) => {
-  const files = e.target.files;
-  if (files && files.length) applySpriteFiles(files); // <-- call existing function
-});
-
-
-
-// Optional: drag & drop (first image only)
-document.addEventListener('dragover', (e) => e.preventDefault());
-document.addEventListener('drop', (e) => {
-  e.preventDefault();
-  const file = Array.from(e.dataTransfer?.files || []).find(f => f.type.startsWith('image/'));
-  if (file) applySpriteFiles([file]); // wrap single file as a list
-});
-
-// One file -> all horses. Keeps default sprite if nothing chosen.
-function applySpriteFiles(files) {
-  const file = (files && files[0]) || null;
-  if (!file || !file.type?.startsWith('image/')) return;
-
-  const url = URL.createObjectURL(file);
-  const img = new Image();
-
-  img.onload = () => {
-    // assign the SAME image object to every horse
-    horses.forEach(h => { h.sprite = { img }; });
-
-    // UI updates
-    refreshButtonsIfLoaded?.();
-    refreshLeaderboard?.();
-
-    // Preview (single entry)
-    const purl = URL.createObjectURL(file);
-    spritePreviewEl.innerHTML = `
-      <div style="margin:4px 0;padding:6px;background:rgba(0,0,0,0.18);border-radius:6px">
-        <div><b>All horses</b> <span style="opacity:.7">(same file)</span></div>
-        <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
-          <img src="${purl}" style="height:28px;border-radius:4px;box-shadow:0 0 0 1px rgba(255,255,255,.2)">
-          <span class="tiny" style="opacity:.8">${file.name}</span>
-        </div>
-      </div>`;
-    setTimeout(() => URL.revokeObjectURL(purl), 30000); // let preview live a bit
-
-    URL.revokeObjectURL(url);
-  };
-
-  img.src = url;
-}
-
-
-
-
-
-
-
     // Frames/Scale UI
     const framesInput = document.getElementById('framesInput');
     const scaleInput  = document.getElementById('scaleInput');
@@ -416,11 +324,11 @@ function drawTrack() {
   const bottomColor = window.TRACK_STYLE?.backgroundBottom || '#C19A6B';
   
   // Draw gradient background
-  const gradient = ctx.createLinearGradient(0, 0, 0, VIEW_H);
+  const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
   gradient.addColorStop(0, topColor);
   gradient.addColorStop(1, bottomColor);
   ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, worldWidth, VIEW_H);
+  ctx.fillRect(0, 0, worldWidth, canvas.height);
 
   // === INNER RAIL (top border) ===
   ctx.fillStyle = '#8B4513';
@@ -526,11 +434,11 @@ function drawTrack() {
   
   // Red finish post
   ctx.fillStyle = '#CC0000';
-  ctx.fillRect(finishLine - 3, 0, 6, VIEW_H);
+  ctx.fillRect(finishLine - 3, 0, 6, canvas.height);
   
   // Checkered pattern
   const checkerSize = 20;
-  for (let y = 0; y < VIEW_H; y += checkerSize) {
+  for (let y = 0; y < canvas.height; y += checkerSize) {
     for (let x = 0; x < finishWidth; x += checkerSize) {
       const isBlack = ((x / checkerSize) + (y / checkerSize)) % 2 === 0;
       ctx.fillStyle = isBlack ? '#000' : '#fff';
@@ -562,7 +470,7 @@ function drawTrack() {
 
 
 
-// Sprite drawing with proper color tinting (HD-safe)
+// Sprite drawing with proper color tinting
 function drawHorseSprite(horse, dt) {
   const { frames, scale, fps } = spriteConfig;
   const hasSprite = horse.sprite && horse.sprite.img && horse.sprite.img.complete;
@@ -578,59 +486,55 @@ function drawHorseSprite(horse, dt) {
     ctx.fillText(horse.name, 0, yOffset);
   }
 
-  // ---------- DEFAULT SPRITE BRANCH ----------
+  // Use default sprite if present
   if (!hasSprite && horseSprite.complete) {
     ctx.save();
     ctx.translate(horse.x, horse.y);
-
     const animFps = fps + horse.speed * 0.6;
     horse.animTime = (horse.animTime || 0) + animFps * dt;
-
     const frameWidth  = horseSprite.width / SPRITE_FRAMES_DEFAULT;
     const frameHeight = horseSprite.height;
     const frame       = Math.floor(horse.animTime) % SPRITE_FRAMES_DEFAULT;
-
     const drawWidth  = frameWidth  * SPRITE_SCALE_DEFAULT;
     const drawHeight = frameHeight * SPRITE_SCALE_DEFAULT;
-
-    // temp canvas at native frame size (no scaling here)
-    const tcan = document.createElement('canvas');
-    const tctx = tcan.getContext('2d');
-    tcan.width  = frameWidth;
-    tcan.height = frameHeight;
-
-    // draw native frame
-    tctx.drawImage(
+    
+    // Create temporary canvas for tinting
+    const tempCanvas = document.createElement('canvas');
+    const tempCtx = tempCanvas.getContext('2d');
+    tempCanvas.width = drawWidth;
+    tempCanvas.height = drawHeight;
+    
+    // Draw horse to temp canvas
+    tempCtx.drawImage(
       horseSprite,
       frame * frameWidth, 0, frameWidth, frameHeight,
-      0, 0, frameWidth, frameHeight
+      0, 0, drawWidth, drawHeight
     );
-
-    // tint (light colors use 'screen')
-    const light1 = (horse.color || '').trim().toUpperCase();
-    tctx.globalCompositeOperation =
-      ['#FFFFFF','#D3D3D3','#F5DEB3','#C0C0C0','#A9A9A9'].includes(light1) ? 'screen' : 'multiply';
-    tctx.fillStyle = horse.color;
-    tctx.fillRect(0, 0, frameWidth, frameHeight);
-
-    // restore alpha
-    tctx.globalCompositeOperation = 'destination-in';
-    tctx.drawImage(
+    
+    // Apply color tint using multiply blend
+    tempCtx.globalCompositeOperation = 'multiply';
+    tempCtx.fillStyle = horse.color;
+    tempCtx.fillRect(0, 0, drawWidth, drawHeight);
+    
+    // Restore original alpha channel (removes background tinting)
+    tempCtx.globalCompositeOperation = 'destination-in';
+    tempCtx.drawImage(
       horseSprite,
       frame * frameWidth, 0, frameWidth, frameHeight,
-      0, 0, frameWidth, frameHeight
+      0, 0, drawWidth, drawHeight
     );
-    tctx.globalCompositeOperation = 'source-over';
-
-    // scale ONCE when drawing to the main canvas
-    ctx.drawImage(tcan, -drawWidth / 2, -drawHeight / 2 - 45, drawWidth, drawHeight);
-
+    
+    tempCtx.globalCompositeOperation = 'source-over';
+    
+    // Draw tinted horse
+    ctx.drawImage(tempCanvas, -drawWidth / 2, -drawHeight / 2 - 22);
+    
     drawName(-drawHeight * 0.6);
     ctx.restore();
     return;
   }
 
-  // ---------- FALLBACK CIRCLE ----------
+  // Fallback circle (already uses color)
   if (!hasSprite) {
     ctx.save();
     ctx.translate(horse.x, horse.y);
@@ -643,56 +547,57 @@ function drawHorseSprite(horse, dt) {
     return;
   }
 
-  // ---------- CUSTOM SPRITE BRANCH ----------
+  // Custom sprite with color tint
   const img = horse.sprite.img;
   const frameW = Math.floor(img.width / frames);
   const frameH = img.height;
-
   const animFps = fps + horse.speed * 0.6;
   horse.animTime = (horse.animTime || 0) + animFps * dt;
   const frameIndex = Math.floor(horse.animTime) % frames;
-
   const drawW = frameW * scale;
   const drawH = frameH * scale;
 
   ctx.save();
   ctx.translate(horse.x, horse.y);
-
-  // temp canvas at native frame size (no scaling here)
-  const tcan = document.createElement('canvas');
-  const tctx = tcan.getContext('2d');
-  tcan.width  = frameW;
-  tcan.height = frameH;
-
-  // draw native frame
-  tctx.drawImage(
+  
+  // Create temporary canvas for tinting
+  const tempCanvas = document.createElement('canvas');
+  const tempCtx = tempCanvas.getContext('2d');
+  tempCanvas.width = drawW;
+  tempCanvas.height = drawH;
+  
+  // Draw sprite frame
+  tempCtx.drawImage(
     img,
     frameIndex * frameW, 0, frameW, frameH,
-    0, 0, frameW, frameH
+    0, 0, drawW, drawH
   );
-
-  // tint (light colors use 'screen')
-  const light2 = (horse.color || '').trim().toUpperCase();
-  tctx.globalCompositeOperation =
-    ['#FFFFFF','#D3D3D3','#F5DEB3','#C0C0C0','#A9A9A9'].includes(light2) ? 'screen' : 'multiply';
-  tctx.fillStyle = horse.color;
-  tctx.fillRect(0, 0, frameW, frameH);
-
-  // restore alpha
-  tctx.globalCompositeOperation = 'destination-in';
-  tctx.drawImage(
+  
+  // Apply color tint
+  tempCtx.globalCompositeOperation = 'multiply';
+  tempCtx.fillStyle = horse.color;
+  tempCtx.fillRect(0, 0, drawW, drawH);
+  
+  // Restore transparency
+  tempCtx.globalCompositeOperation = 'destination-in';
+  tempCtx.drawImage(
     img,
     frameIndex * frameW, 0, frameW, frameH,
-    0, 0, frameW, frameH
+    0, 0, drawW, drawH
   );
-  tctx.globalCompositeOperation = 'source-over';
-
-  // scale ONCE when drawing to the main canvas
-  ctx.drawImage(tcan, -drawW * 0.5, -drawH * 0.5, drawW, drawH);
+  
+  tempCtx.globalCompositeOperation = 'source-over';
+  
+  // Draw tinted result
+  ctx.drawImage(tempCanvas, -drawW*0.5, -drawH*0.5);
 
   drawName(-drawH * 0.6);
   ctx.restore();
 }
+
+
+
+
 
 
 
@@ -895,35 +800,11 @@ function showStrategySummary(horses) {
     const startBtn   = document.getElementById('startBtn');
     const resetBtn   = document.getElementById('resetBtn');
     const loadStatus = document.getElementById('loadStatus');
-    const pauseBtn = document.getElementById('pauseBtn')
-    let isPaused = false
-
-    function togglePause() {
-  if (!raceActive && !raceFinished) return; // nothing to pause
-  isPaused = !isPaused;
-  pauseBtn.textContent = isPaused ? 'Resume' : 'Pause';
-}
-
-pauseBtn.onclick = togglePause;
-
-// Optional shortcuts: Space or "P" to pause/resume
-window.addEventListener('keydown', (e) => {
-  const k = e.key.toLowerCase();
-  if (k === 'p' || k === ' ') {
-    e.preventDefault();
-    togglePause();
-  }
-});
-
-
 
     function startRace() {
       if (raceActive) return;
       raceActive = true;
       raceFinished = false;
-      isPaused = false;
-      pauseBtn.textContent = 'Pause';
-      pauseBtn.disabled = false;
       finishOrder = [];
       horses.forEach(h => {
         h.finished = false;
@@ -946,9 +827,6 @@ window.addEventListener('keydown', (e) => {
     function resetRace() {
       raceActive = false;
       raceFinished = false;
-      isPaused = false;
-      pauseBtn.textContent = 'Pause';
-      pauseBtn.disabled = false;
       cameraX = 0;
       finishOrder = [];
       horses.forEach(h=>{
@@ -1274,32 +1152,22 @@ if (h.strategy === 'CLOSER') {
       const dt = Math.min(0.05, (ts - lastTs) / 1000);
       lastTs = ts;
 
-        // Freeze camera when paused
- // Update camera only when active/finished and not paused
-  if ((raceActive || raceFinished) && !isPaused) {
-    const leader = Math.max(...horses.map(h => h.x));
-    const targetCameraX = Math.max(0, Math.min(worldWidth - VIEW_W, leader - VIEW_W * 0.3));
-    cameraX += (targetCameraX - cameraX) * 0.1;
-  }
+      if (raceActive || raceFinished) {
+        const leader = Math.max(...horses.map(h => h.x));
+        const targetCameraX = Math.max(0, Math.min(worldWidth - canvas.width, leader - canvas.width * 0.3));
+        cameraX += (targetCameraX - cameraX) * 0.1;
+      }
 
-  ctx.save();
-  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  ctx.translate(-cameraX, 0);
+      ctx.save();
+      ctx.setTransform(1,0,0,1,0,0);
+      ctx.translate(-cameraX, 0);
 
       drawTrack();
-      // Pass 0 dt to freeze sprite animation while paused
-      const dtUsed = isPaused ? 0 : dt;
-      horses.slice().sort((a,b)=>a.y-b.y).forEach(h => drawHorseSprite(h, dtUsed));
+      horses.slice().sort((a,b)=>a.y-b.y).forEach(h => drawHorseSprite(h, dt));
 
       ctx.restore();
-      
-if (!isPaused) {
-    updateHorses(dt);
-  } else {
-    // keep results/leaderboard visible while paused
-    updateRaceResults();
-  }
 
+      updateHorses(dt);
       requestAnimationFrame(loop);
     }
 

@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Horse Race Simulation</title>
+</head>
+<body>
+    <h1>Check the Console (F12)</h1>
+    <script>
+        
+
+
+// Horse Racing Strategy System with Energy Management
+
+class HorseRaceSimulator {
+  constructor(horses) {
+    this.horses = horses.map(h => ({...h, 
+      position: 0, 
+      energy: 1.0,
+      currentSpeed: 0,
+      strategy: this.assignStrategy(h)
+    }));
+    this.raceDistance = 1000; // total race distance
+    this.currentDistance = 0;
+    this.frameCount = 0;
+  }
+  
+  // Assign racing strategy based on horse stats
+  assignStrategy(horse) {
+    const speedRatio = horse.baseSpeed / 3.5; // normalized
+    const staminaRatio = horse.stamina / 1.1;
+    const sprintPower = horse.sprint / 3.0;
+    
+    // Front-runner: high baseSpeed, decent stamina, moderate sprint
+    if (speedRatio > 0.9 && staminaRatio > 0.8 && sprintPower < 0.9) {
+      return {
+        type: 'FRONT_RUNNER',
+        earlyPaceTarget: 0.95, // 95% of max speed early
+        midPaceTarget: 0.85,
+        latePaceTarget: 0.75,
+        energyDrain: 1.3, // drains 30% faster than normal
+        kickPhase: 0.95 // no real kick, just hold on
+      };
+    }
+    
+    // Presser: high speed, good stamina, good sprint
+    if (speedRatio > 0.85 && staminaRatio > 0.85 && sprintPower > 0.8) {
+      return {
+        type: 'PRESSER',
+        earlyPaceTarget: 0.85, // sit just behind
+        midPaceTarget: 0.90,
+        latePaceTarget: 0.95,
+        energyDrain: 1.1,
+        kickPhase: 0.75 // strike at 75% of race
+      };
+    }
+    
+    // Closer: lower early speed, HIGH stamina, HIGH sprint
+    if (staminaRatio > 0.85 && sprintPower > 0.85) {
+      return {
+        type: 'CLOSER',
+        earlyPaceTarget: 0.65, // conserve energy
+        midPaceTarget: 0.70,
+        latePaceTarget: 1.2, // massive kick!
+        energyDrain: 0.8, // conserves energy
+        kickPhase: 0.80 // unleash at 80% of race
+      };
+    }
+    
+    // Stalker: balanced stats
+    return {
+      type: 'STALKER',
+      earlyPaceTarget: 0.75,
+      midPaceTarget: 0.85,
+      latePaceTarget: 1.05,
+      energyDrain: 1.0,
+      kickPhase: 0.70
+    };
+  }
+  
+  // Calculate current pace target based on race phase
+  getPaceTarget(horse, progress) {
+    const strat = horse.strategy;
+    
+    if (progress < 0.33) {
+      return strat.earlyPaceTarget;
+    } else if (progress < 0.70) {
+      return strat.midPaceTarget;
+    } else if (progress >= strat.kickPhase) {
+      // Final kick phase
+      return strat.latePaceTarget;
+    } else {
+      return strat.midPaceTarget;
+    }
+  }
+  
+  // Update race for one frame
+  updateRace() {
+    const progress = this.currentDistance / this.raceDistance;
+    const leaderPosition = Math.max(...this.horses.map(h => h.position));
+    
+    this.horses.forEach(horse => {
+      // Calculate target speed based on strategy
+      const paceTarget = this.getPaceTarget(horse, progress);
+      const baseSpeed = horse.baseSpeed * paceTarget;
+      
+      // Apply energy to speed
+      const energyFactor = Math.pow(horse.energy, 2); // energy has quadratic effect
+      const effectiveSpeed = baseSpeed * energyFactor;
+      
+      // Apply variance
+      const variance = 1 + (Math.random() - 0.5) * horse.variance;
+      horse.currentSpeed = effectiveSpeed * variance;
+      
+      // Check if horse is in the lead (causes extra fatigue)
+      const isLeading = horse.position >= leaderPosition - 1;
+      const pressureMultiplier = isLeading ? 1.3 : 1.0; // leaders tire faster
+      
+      // Drain energy based on strategy and current effort
+      const effortLevel = horse.currentSpeed / horse.baseSpeed;
+      const energyLoss = (0.0015 * effortLevel * horse.strategy.energyDrain * pressureMultiplier) / horse.stamina;
+      horse.energy = Math.max(0.1, horse.energy - energyLoss);
+      
+      // Update position
+      horse.position += horse.currentSpeed;
+      
+      // Apply kick bonus in final stretch
+      if (progress >= horse.strategy.kickPhase && horse.strategy.type === 'CLOSER') {
+        const kickBonus = horse.sprint * 0.8 * horse.energy;
+        horse.position += kickBonus;
+      }
+    });
+    
+    this.currentDistance = leaderPosition;
+    this.frameCount++;
+    
+    return this.currentDistance < this.raceDistance;
+  }
+  
+  // Get race results
+  getResults() {
+    const sorted = [...this.horses].sort((a, b) => b.position - a.position);
+    return sorted.map((h, i) => ({
+      place: i + 1,
+      name: h.name,
+      strategy: h.strategy.type,
+      finalPosition: h.position.toFixed(2),
+      energyLeft: (h.energy * 100).toFixed(1) + '%',
+      color: h.color
+    }));
+  }
+  
+  // Get current standings
+  getStandings() {
+    const sorted = [...this.horses].sort((a, b) => b.position - a.position);
+    const leader = sorted[0].position;
+    
+    return sorted.map(h => ({
+      name: h.name,
+      strategy: h.strategy.type,
+      position: h.position.toFixed(1),
+      gap: (leader - h.position).toFixed(1),
+      energy: (h.energy * 100).toFixed(0) + '%',
+      color: h.color
+    }));
+  }
+}
+
+// Example usage with your horses
+const horses = [
+  {name: "Thunder", color: "#654321", baseSpeed: 3.00, stamina: 0.75, sprint: 3.00, variance: 0.25},
+  {name: "Lightning", color: "#F5DEB3", baseSpeed: 2.70, stamina: 0.99, sprint: 1.05, variance: 0.56},
+  {name: "Storm", color: "#2F4F4F", baseSpeed: 3.00, stamina: 0.90, sprint: 1.20, variance: 0.70},
+  {name: "Blaze", color: "#CD853F", baseSpeed: 3.40, stamina: 0.90, sprint: 1.00, variance: 1.00},
+  {name: "Shadow", color: "#1C1C1C", baseSpeed: 3.00, stamina: 1.00, sprint: 1.06, variance: 0.22},
+  {name: "Comet", color: "#1C1C1C", baseSpeed: 3.00, stamina: 0.70, sprint: 2.50, variance: 0.25},
+  {name: "Raven", color: "#88860B", baseSpeed: 3.00, stamina: 1.00, sprint: 0.70, variance: 0.45},
+];
+
+// Run simulation
+const race = new HorseRaceSimulator(horses);
+
+console.log("=== RACE START ===");
+console.log("Horse Strategies:");
+race.horses.forEach(h => {
+  console.log(`${h.name}: ${h.strategy.type}`);
+});
+console.log("");
+
+// Simulate race with progress updates
+let updateCount = 0;
+while (race.updateRace()) {
+  updateCount++;
+  
+  // Show standings at 25%, 50%, 75%, 90%
+  const progress = race.currentDistance / race.raceDistance;
+  if (Math.abs(progress - 0.25) < 0.01 || 
+      Math.abs(progress - 0.50) < 0.01 || 
+      Math.abs(progress - 0.75) < 0.01 ||
+      Math.abs(progress - 0.90) < 0.01) {
+    console.log(`\n--- ${(progress * 100).toFixed(0)}% of Race ---`);
+    race.getStandings().forEach((h, i) => {
+      console.log(`${i+1}. ${h.name} (${h.strategy}) - Gap: ${h.gap}m, Energy: ${h.energy}`);
+    });
+  }
+}
+
+// Final results
+console.log("\n\n=== FINAL RESULTS ===");
+race.getResults().forEach(h => {
+  console.log(`${h.place}. ${h.name} (${h.strategy}) - Energy Left: ${h.energyLeft}`);
+});
+
+console.log(`\nTotal frames: ${race.frameCount}`);
+
+
+
+
+
+
+
+
+
+    </script>
+</body>
+</html>
