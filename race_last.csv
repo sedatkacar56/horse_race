@@ -1,14 +1,12 @@
-"name","position"
-"Brave Rocket",1
-"Blazing Flame",2
-"Rapid Fury",3
-"Of course",4
-"Radiant Tornado",5
-"Midnight Storm",6
-"Radiant Wind",7
-"Wild Comet",8
-"Fierce Rocket",9
-"Silent Tornado",10
-"Electric Trail",11
-"Golden Flame",12
-"Rapid Drift",13
+"name","position","handicap"
+"Brave Rocket",1,27
+"Blazing Flame",2,36
+"Silent Strike",3,39
+"Radiant Echo",4,22
+"Thunder Wind",5,29
+"Midnight Storm",6,22
+"Of course",7,26
+"Swift Strike",8,18
+"Wild Arrow",9,19
+"Brave Whisper",10,16
+"Brave Fury",11,16

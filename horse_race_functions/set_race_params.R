@@ -45,12 +45,13 @@
 #' @return Invisibly writes `race_params.js` and opens the race HTML file.
 #' @export
 set_race_params <- function(html_name = "deneme_control_canvas2", 
-                            ww = 5000, fl = 4500, cw = 1200, ch = 600, lg = 10, lo = 100
+                            ww = 5000, fl = 4500, cw = 1200, ch = 600, lg = 10, lo = 100, 
+                            strategy = 'assignRacingStrategies_sedat', update = 'updateHorses_new'
 ) {
   # Write simple JS file
   js_config <- sprintf(
-    "window.RACE_PARAMS = {cw:%d, ch:%d, ww:%d, lg:%d, lo:%d, fl:%d};",
-    cw, ch, ww, lg, lo, fl
+    "window.RACE_PARAMS = {cw:%d, ch:%d, ww:%d, lg:%d, lo:%d, fl:%d, strategy:'%s', update:'%s'};",
+    cw, ch, ww, lg, lo, fl, strategy, update
   )
   
   writeLines(js_config, "C:/Users/skacar/Documents/horse_race/race_params.js")

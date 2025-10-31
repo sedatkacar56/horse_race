@@ -148,13 +148,13 @@ const finishLine = PARAMS.fl;
 console.log("🏇 Using parameters:", PARAMS);
 
 // 🔹 High-DPI (Retina / HD) rendering setup
-const DPR = Math.max(1, window.devicePixelRatio || 1);
+const DPR = Math.max(3, window.devicePixelRatio || 1);
 canvas.width  = VIEW_W * DPR;
 canvas.height = VIEW_H * DPR;
 canvas.style.width  = VIEW_W + 'px';
 canvas.style.height = VIEW_H + 'px';
 ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-ctx.imageSmoothingEnabled = true;        // set false for pixel-art
+ctx.imageSmoothingEnabled = false;        // set false for pixel-art
 ctx.imageSmoothingQuality = 'high';
 
 // Apply track colors from horses.js
@@ -183,9 +183,6 @@ const FURLONGS_TOTAL = (window.RACE_PARAMS?.furlongs)
 console.log(`📏 Track length: ${FURLONGS_TOTAL} furlongs (${finishLine - START_X}px)`);
 
 // This ensures your drawTrack() and progress calculations both adapt dynamically.
-
-
-
 
 // Display parameters on screen
 const paramInfo = document.createElement('div');
@@ -337,7 +334,6 @@ if (!Array.isArray(window.HORSE_DATA) || HORSE_DATA.length === 0) {
 
 
 
-    /* ========= Multi-sprite loader (files or whole folder) ========= */
 
 // UI refs
 const spriteFileInput = document.getElementById('spriteFiles');
@@ -816,25 +812,36 @@ function showStrategySummary(horses) {
     }
 
     function updateCompleteStats() {
-  const completeStatsEl = document.getElementById('completeStats');
-  if (!Array.isArray(window.HORSE_DATA) || HORSE_DATA.length === 0) {
-    completeStatsEl.innerHTML = '<div class="tiny" style="opacity:0.7">No horses found</div>';
-    return;
-  }
+      const completeStatsEl = document.getElementById('completeStats');
+      
+      if (raceHistory.length === 0) {
+        completeStatsEl.innerHTML = '<div class="tiny" style="opacity:0.7">No races completed yet</div>';
+        return;
+      }
 
-  let html = '<div style="background:rgba(0,0,0,0.2);padding:8px;border-radius:6px">';
-  HORSE_DATA.forEach(h => {
-    const pos = h.position ?? '-';
-    html += `
-      <div style="padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.1)">
-        <span style="color:${h.color};font-size:16px">●</span> 
-        <b>${h.name}</b> — ${pos}
-      </div>`;
-  });
-  html += '</div>';
-  completeStatsEl.innerHTML = html;
-}
-
+      let html = '<div style="background:rgba(0,0,0,0.2);padding:8px;border-radius:6px">';
+      
+      horses.forEach(h => {
+        // Build race code for this horse
+        let raceCode = '';
+        raceHistory.forEach(race => {
+          const result = race.results.find(r => r.name === h.name);
+          if (result) {
+            raceCode += result.position >= 10 ? '0' : result.position;
+          }
+        });
+        
+        if (raceCode) {
+          html += `<div style="padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.1)">
+            <span style="color:${h.color};font-size:16px">●</span> 
+            <b>${h.name}</b> - ${raceCode}
+          </div>`;
+        }
+      });
+      
+      html += '</div>';
+      completeStatsEl.innerHTML = html;
+    }
 
     function updateRaceResults() {
       if (!raceActive && finishOrder.length === 0) {
@@ -1319,8 +1326,8 @@ function assignRacingStrategies(horses) {
   };
 
   const raceLength = finishLine - 50;
-  const isShort = raceLength < 3000;
-  const isLong  = raceLength > 6000;
+  const isShort = raceLength < 5000;
+  const isLong  = raceLength > 8000;
 
   // === STEP 2: calculate suitability scores for each strategy ===
   const scores = horses.map(h => {
@@ -1416,18 +1423,18 @@ function assignRacingStrategies(horses) {
     switch(h.strategy) {
       case 'FRONT_RUNNER':
         h.strategyParams = {
-          earlyPace: isLong ? 0.88 : (isShort ? 0.98 : 0.93),
-          midPace:   isLong ? 0.83 : 0.88,
-          latePace:  isLong ? 0.78 : 0.82,
+          earlyPace: isLong ? 0.98 : (isShort ? 0.98 : 0.93),
+          midPace:   isLong ? 0.90 : (isShort ? 0.93 : 0.88),
+          latePace:  isLong ? 0.65 : (isShort ? 0.90 : 0.82),
           energyDrain: isLong ? 1.25 : 1.15,
           kickPhase: isLong ? 0.90 : 0.85
         };
         break;
       case 'PRESSER':
         h.strategyParams = {
-          earlyPace: 0.82,
-          midPace:   isLong ? 0.88 : 0.90,
-          latePace:  isLong ? 1.05 : 1.02,
+          earlyPace: isLong ? 0.85 : (isShort ? 0.90 : 0.93),
+          midPace:   isLong ? 0.90 : (isShort ? 0.90 : 0.95),
+          latePace:  isLong ? 1.00 : 1.02,
           energyDrain: 1.1,
           kickPhase: 0.72,
           kickMult: 1.08,
@@ -1437,7 +1444,7 @@ function assignRacingStrategies(horses) {
         break;
       case 'STALKER':
         h.strategyParams = {
-          earlyPace: 0.80,
+          earlyPace: isLong ? 0.80 : (isShort ? 0.80 : 0.80),
           midPace:   isLong ? 0.92 : 0.88,
           latePace:  isLong ? 1.12 : 1.08,
           energyDrain: 0.93,
@@ -1447,7 +1454,7 @@ function assignRacingStrategies(horses) {
       case 'CLOSER':
         h.strategyParams = {
           earlyPace: isShort ? 0.78 : 0.68,
-          midPace:   isLong ? 0.78 : 0.76,
+          midPace:   isLong ? 0.80 : 0.76,
           latePace:  isLong ? 1.35 : 1.22,
           energyDrain: 0.70,
           kickPhase: isShort ? 0.75 : 0.80

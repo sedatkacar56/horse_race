@@ -122,6 +122,8 @@
 	
   <script src="race_params.js"></script>
 
+<script src="strategies/strategies.js"></script>  <!-- ADD THIS -->
+
 
   <script>
 
@@ -148,13 +150,13 @@ const finishLine = PARAMS.fl;
 console.log("🏇 Using parameters:", PARAMS);
 
 // 🔹 High-DPI (Retina / HD) rendering setup
-const DPR = Math.max(1, window.devicePixelRatio || 1);
+const DPR = Math.max(3, window.devicePixelRatio || 1);
 canvas.width  = VIEW_W * DPR;
 canvas.height = VIEW_H * DPR;
 canvas.style.width  = VIEW_W + 'px';
 canvas.style.height = VIEW_H + 'px';
 ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-ctx.imageSmoothingEnabled = true;        // set false for pixel-art
+ctx.imageSmoothingEnabled = false;        // set false for pixel-art
 ctx.imageSmoothingQuality = 'high';
 
 // Apply track colors from horses.js
@@ -183,9 +185,6 @@ const FURLONGS_TOTAL = (window.RACE_PARAMS?.furlongs)
 console.log(`📏 Track length: ${FURLONGS_TOTAL} furlongs (${finishLine - START_X}px)`);
 
 // This ensures your drawTrack() and progress calculations both adapt dynamically.
-
-
-
 
 // Display parameters on screen
 const paramInfo = document.createElement('div');
@@ -337,7 +336,6 @@ if (!Array.isArray(window.HORSE_DATA) || HORSE_DATA.length === 0) {
 
 
 
-    /* ========= Multi-sprite loader (files or whole folder) ========= */
 
 // UI refs
 const spriteFileInput = document.getElementById('spriteFiles');
@@ -815,7 +813,7 @@ function showStrategySummary(horses) {
       updateCompleteStats();
     }
 
-    function updateCompleteStats() {
+function updateCompleteStats() {
   const completeStatsEl = document.getElementById('completeStats');
   if (!Array.isArray(window.HORSE_DATA) || HORSE_DATA.length === 0) {
     completeStatsEl.innerHTML = '<div class="tiny" style="opacity:0.7">No horses found</div>';
@@ -923,7 +921,26 @@ window.addEventListener('keydown', (e) => {
         h._kickCooldown = 0;
       });
 
-      assignRacingStrategies(horses); // ⭐ ADD THIS LINE
+      
+      // ⭐ Dynamic strategy caller
+const strategyFuncName = window.RACE_PARAMS?.strategy || 'assignRacingStrategies_sedat';
+const strategyFunc = window[strategyFuncName];
+
+if (typeof strategyFunc === 'function') {
+  strategyFunc(horses);
+  console.log(`✅ Using strategy: ${strategyFuncName}`);
+} else {
+  console.error(`❌ Strategy function "${strategyFuncName}" not found!`);
+  // Fallback to default
+  if (typeof window.assignRacingStrategies_sedat === 'function') {
+    window.assignRacingStrategies_sedat(horses);
+    console.log('⚠️ Falling back to assignRacingStrategies_sedat');
+  }
+}
+
+
+
+
 
       startBtn.disabled = true;
       resetBtn.disabled = true;
@@ -1309,164 +1326,6 @@ if (!isPaused) {
 
 // Dynamic Strategy Assignment System
 // Assigns strategies based on how each horse compares to the AVERAGE of the race field
-
-function assignRacingStrategies(horses) {
-  // === STEP 1: calculate averages ===
-  const avg = {
-    speed:  horses.reduce((a,b)=>a+b.stats.baseSpeed,0) / horses.length,
-    stamina:horses.reduce((a,b)=>a+b.stats.stamina,0) / horses.length,
-    sprint: horses.reduce((a,b)=>a+b.stats.sprint,0) / horses.length
-  };
-
-  const raceLength = finishLine - 50;
-  const isShort = raceLength < 3000;
-  const isLong  = raceLength > 6000;
-
-  // === STEP 2: calculate suitability scores for each strategy ===
-  const scores = horses.map(h => {
-    const r = {
-      speed:   h.stats.baseSpeed / avg.speed,
-      stamina: h.stats.stamina   / avg.stamina,
-      sprint:  h.stats.sprint    / avg.sprint
-    };
-    return {
-      horse: h,
-      scores: {
-        FRONT_RUNNER: r.speed * 1.5 + r.stamina * 0.8 - r.sprint * 0.3,
-        PRESSER:      r.speed * 1.1 + r.stamina * 1.0 + r.sprint * 0.8,
-        STALKER:      3 - (Math.abs(r.speed-1) + Math.abs(r.stamina-1) + Math.abs(r.sprint-1)),
-        CLOSER:       r.sprint * 1.6 + r.stamina * 1.1 - r.speed * 0.4
-      }
-    };
-  });
-
-    // === STEP 3EQUAL: guarantee an equal mix across strategies ===
-  const STRATS = ['FRONT_RUNNER','PRESSER','STALKER','CLOSER'];
-  const assigned = new Map();
-  const used     = new Set();
-  const n        = horses.length;
-
-  // helper: pick the best remaining horse for a given strategy
-  function bestHorseFor(strategy) {
-    const pick = scores
-      .filter(s => !used.has(s.horse))
-      .map(s => ({ horse: s.horse, score: s.scores[strategy] }))
-      .sort((a,b) => b.score - a.score)[0];
-    return pick || null;
-  }
-
-  // If <= 4 horses, give each a different strategy first
-  if (n <= STRATS.length) {
-    for (let i = 0; i < n; i++) {
-      const st = STRATS[i];
-      const pick = bestHorseFor(st);
-      if (pick) { assigned.set(pick.horse, st); used.add(pick.horse); }
-    }
-  } else {
-    // Equal target per strategy (base), remainder spread by strength
-    const base = Math.floor(n / STRATS.length); // e.g. 16 -> 4 each
-    let rem    = n % STRATS.length;             // leftovers to distribute
-
-    // Which strategies are strongest overall (by their top available score)?
-    const stratStrength = STRATS.map(st => {
-      const top = scores.map(s => s.scores[st]).sort((a,b)=>b-a)[0] ?? -Infinity;
-      return { st, top };
-    }).sort((a,b) => b.top - a.top);
-
-    const targets = {};
-    STRATS.forEach(st => targets[st] = base);
-    for (let i = 0; i < rem; i++) targets[stratStrength[i].st] += 1;
-
-    // helper: how many already assigned to st?
-    function assignedPer(st) {
-      let c = 0; for (const [,v] of assigned) if (v === st) c++; return c;
-    }
-
-    // Fill each bucket up to its target
-    for (const st of STRATS) {
-      while (assignedPer(st) < targets[st]) {
-        const pick = bestHorseFor(st);
-        if (!pick) break;
-        assigned.set(pick.horse, st);
-        used.add(pick.horse);
-      }
-    }
-
-    // Anything left unassigned → drop into their personal best strategy
-    scores.forEach(s => {
-      if (!assigned.has(s.horse)) {
-        const best = Object.entries(s.scores).sort((a,b)=>b[1]-a[1])[0][0];
-        assigned.set(s.horse, best);
-        used.add(s.horse);
-      }
-    });
-  }
-
-  // Write back chosen strategies
-  horses.forEach(h => { h.strategy = assigned.get(h) || h.strategy; });
-
-  // === STEP 5: apply tuned strategy parameters ===
-  horses.forEach(h => {
-    const r = {
-      speed:   h.stats.baseSpeed / avg.speed,
-      stamina: h.stats.stamina   / avg.stamina,
-      sprint:  h.stats.sprint    / avg.sprint
-    };
-
-    switch(h.strategy) {
-      case 'FRONT_RUNNER':
-        h.strategyParams = {
-          earlyPace: isLong ? 0.88 : (isShort ? 0.98 : 0.93),
-          midPace:   isLong ? 0.83 : 0.88,
-          latePace:  isLong ? 0.78 : 0.82,
-          energyDrain: isLong ? 1.25 : 1.15,
-          kickPhase: isLong ? 0.90 : 0.85
-        };
-        break;
-      case 'PRESSER':
-        h.strategyParams = {
-          earlyPace: 0.82,
-          midPace:   isLong ? 0.88 : 0.90,
-          latePace:  isLong ? 1.05 : 1.02,
-          energyDrain: 1.1,
-          kickPhase: 0.72,
-          kickMult: 1.08,
-          surgeWindow: 0.15,
-          gapTrigger: 0.8
-        };
-        break;
-      case 'STALKER':
-        h.strategyParams = {
-          earlyPace: 0.80,
-          midPace:   isLong ? 0.92 : 0.88,
-          latePace:  isLong ? 1.12 : 1.08,
-          energyDrain: 0.93,
-          kickPhase: 0.72
-        };
-        break;
-      case 'CLOSER':
-        h.strategyParams = {
-          earlyPace: isShort ? 0.78 : 0.68,
-          midPace:   isLong ? 0.78 : 0.76,
-          latePace:  isLong ? 1.35 : 1.22,
-          energyDrain: 0.70,
-          kickPhase: isShort ? 0.75 : 0.80
-        };
-        break;
-    }
-  });
-
-  // === STEP 6: log for debugging ===
-  const dist = {};
-  horses.forEach(h => dist[h.strategy] = (dist[h.strategy]||0)+1);
-  console.log('📊 Final strategy distribution:', dist);
-  horses.forEach(h => console.log(`🐴 ${h.name.padEnd(20)} → ${h.strategy}`));
-  showStrategySummary(horses);
-}
-
-
-
-
 
 
 
